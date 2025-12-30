@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 bevy = { version = "0.16", features = ["dynamic_linking"] }
+bytemuck = "1.14"
+wgpu-types = "24.0"
 
 [profile.dev]
 opt-level = 1

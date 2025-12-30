@@ -1,34 +1,42 @@
-// ASCII Post-Processing Effect
-// Renders the scene as ASCII art
-// Supports both global and per-object pattern modes
+// ASCII Post-Processing Effect with Per-Object Pattern Support
+// Renders the scene as ASCII art with optional per-object character patterns
+
+mod pattern_material;
 
 use bevy::{
-    core_pipeline::{
-        core_3d::graph::{Core3d, Node3d},
-        fullscreen_vertex_shader::fullscreen_shader_vertex_state,
-    },
+    core_pipeline::fullscreen_vertex_shader::fullscreen_shader_vertex_state,
     ecs::query::QueryItem,
     prelude::*,
     render::{
+        camera::RenderTarget,
         extract_component::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
         },
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_graph::{
-            NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode, ViewNodeRunner,
+            NodeRunError, RenderGraphApp, RenderGraphContext, RenderLabel, ViewNode,
+            ViewNodeRunner,
         },
         render_resource::{
             binding_types::{sampler, texture_2d, uniform_buffer},
             *,
         },
         renderer::{RenderContext, RenderDevice},
-        texture::{CachedTexture, TextureCache},
-        view::ViewTarget,
-        Extract, Render, RenderApp, RenderSet,
+        view::{RenderLayers, ViewTarget},
+        RenderApp,
+        render_asset::RenderAssets,
+        texture::GpuImage,
     },
+    core_pipeline::core_3d::graph::{Core3d, Node3d},
 };
 
+pub use pattern_material::{PatternIdMaterial, PatternMaterialPlugin};
+
 const ASCII_SHADER_PATH: &str = "shaders/ascii.wgsl";
+
+/// Render layer for pattern ID rendering (layer 1)
+pub const PATTERN_RENDER_LAYER: usize = 1;
 
 pub struct AsciiRenderPlugin;
 
@@ -37,6 +45,15 @@ impl Plugin for AsciiRenderPlugin {
         app.add_plugins((
             ExtractComponentPlugin::<AsciiSettings>::default(),
             UniformComponentPlugin::<AsciiSettings>::default(),
+            ExtractResourcePlugin::<PatternRenderTarget>::default(),
+            PatternMaterialPlugin,
+        ))
+        .init_resource::<PatternRenderTarget>()
+        .add_systems(Startup, setup_pattern_camera)
+        .add_systems(Update, (
+            sync_pattern_meshes,
+            sync_pattern_camera_transform,
+            update_pattern_render_target_size,
         ));
 
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
@@ -44,11 +61,7 @@ impl Plugin for AsciiRenderPlugin {
         };
 
         render_app
-            .add_systems(Render, prepare_pattern_texture.in_set(RenderSet::PrepareResources))
-            .add_render_graph_node::<ViewNodeRunner<AsciiNode>>(
-                Core3d,
-                AsciiNodeLabel,
-            )
+            .add_render_graph_node::<ViewNodeRunner<AsciiNode>>(Core3d, AsciiNodeLabel)
             .add_render_graph_edges(
                 Core3d,
                 (
@@ -67,6 +80,189 @@ impl Plugin for AsciiRenderPlugin {
         render_app.init_resource::<AsciiPipeline>();
     }
 }
+
+// ============================================================================
+// PATTERN CAMERA SYSTEM - Uses render layers for per-object patterns
+// ============================================================================
+
+/// Resource holding the pattern render target image handle
+#[derive(Resource, Default, Clone, ExtractResource)]
+pub struct PatternRenderTarget {
+    pub image: Handle<Image>,
+}
+
+/// Marker for the pattern camera
+#[derive(Component)]
+pub struct PatternCamera;
+
+/// Marker for pattern mesh entities (clones of main meshes on layer 1)
+#[derive(Component)]
+pub struct PatternMesh {
+    /// The source entity this pattern mesh mirrors
+    pub source: Entity,
+}
+
+/// Setup the pattern camera that renders to a texture
+fn setup_pattern_camera(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    mut pattern_target: ResMut<PatternRenderTarget>,
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let size = Extent3d {
+        width: window.width() as u32,
+        height: window.height() as u32,
+        depth_or_array_layers: 1,
+    };
+
+    // Create the render target image
+    let mut image = Image {
+        texture_descriptor: TextureDescriptor {
+            label: Some("pattern_render_target"),
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Rgba8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+    image.resize(size);
+
+    let image_handle = images.add(image);
+    pattern_target.image = image_handle.clone();
+
+    // Spawn pattern camera - renders only layer 1
+    // Must match main camera projection for correct alignment
+    commands.spawn((
+        Camera3d::default(),
+        Projection::Perspective(PerspectiveProjection {
+            fov: 100.0_f32.to_radians(), // Match main camera FOV
+            ..default()
+        }),
+        Camera {
+            order: -1, // Render before main camera
+            target: RenderTarget::Image(image_handle.into()),
+            clear_color: ClearColorConfig::Custom(Color::BLACK),
+            ..default()
+        },
+        RenderLayers::layer(PATTERN_RENDER_LAYER),
+        PatternCamera,
+        Msaa::Off,
+    ));
+}
+
+/// Sync pattern camera transform with main camera
+fn sync_pattern_camera_transform(
+    main_camera: Query<&GlobalTransform, (With<Camera3d>, Without<PatternCamera>)>,
+    mut pattern_camera: Query<&mut Transform, With<PatternCamera>>,
+) {
+    let Ok(main_transform) = main_camera.single() else {
+        return;
+    };
+    let Ok(mut pattern_transform) = pattern_camera.single_mut() else {
+        return;
+    };
+
+    // Copy the global transform to local (pattern camera has no parent)
+    let (scale, rotation, translation) = main_transform.to_scale_rotation_translation();
+    pattern_transform.translation = translation;
+    pattern_transform.rotation = rotation;
+    pattern_transform.scale = scale;
+}
+
+/// Update pattern render target size when window resizes
+fn update_pattern_render_target_size(
+    windows: Query<&Window>,
+    pattern_target: Res<PatternRenderTarget>,
+    mut images: ResMut<Assets<Image>>,
+) {
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    let new_size = Extent3d {
+        width: window.width() as u32,
+        height: window.height() as u32,
+        depth_or_array_layers: 1,
+    };
+
+    if let Some(image) = images.get_mut(&pattern_target.image) {
+        if image.texture_descriptor.size != new_size {
+            image.resize(new_size);
+        }
+    }
+}
+
+/// Sync pattern meshes - create/update pattern mesh entities for objects with AsciiPatternId
+fn sync_pattern_meshes(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<PatternIdMaterial>>,
+    // Objects with pattern IDs that need pattern meshes
+    pattern_objects: Query<
+        (Entity, &Mesh3d, &GlobalTransform, &AsciiPatternId),
+        Changed<GlobalTransform>,
+    >,
+    // New objects that need pattern meshes created
+    new_pattern_objects: Query<
+        (Entity, &Mesh3d, &GlobalTransform, &AsciiPatternId),
+        Added<AsciiPatternId>,
+    >,
+    // Existing pattern meshes
+    mut pattern_meshes: Query<(Entity, &PatternMesh, &mut Transform)>,
+    // All pattern objects (for cleanup check)
+    all_pattern_objects: Query<Entity, With<AsciiPatternId>>,
+) {
+    // Create pattern meshes for new objects
+    for (entity, mesh, transform, pattern_id) in &new_pattern_objects {
+        let pattern_material = materials.add(PatternIdMaterial {
+            pattern_id: pattern_id.pattern.as_id() as f32,
+        });
+
+        let (scale, rotation, translation) = transform.to_scale_rotation_translation();
+
+        commands.spawn((
+            Mesh3d(mesh.0.clone()),
+            MeshMaterial3d(pattern_material),
+            Transform {
+                translation,
+                rotation,
+                scale,
+            },
+            RenderLayers::layer(PATTERN_RENDER_LAYER),
+            PatternMesh { source: entity },
+        ));
+    }
+
+    // Update transforms for existing pattern meshes
+    for (entity, _mesh, global_transform, _) in &pattern_objects {
+        for (_, pattern_mesh, mut transform) in &mut pattern_meshes {
+            if pattern_mesh.source == entity {
+                let (scale, rotation, translation) = global_transform.to_scale_rotation_translation();
+                transform.translation = translation;
+                transform.rotation = rotation;
+                transform.scale = scale;
+            }
+        }
+    }
+
+    // Clean up orphaned pattern meshes
+    for (pattern_entity, pattern_mesh, _) in &pattern_meshes {
+        if all_pattern_objects.get(pattern_mesh.source).is_err() {
+            commands.entity(pattern_entity).despawn();
+        }
+    }
+}
+
+// ============================================================================
+// ASCII POST-PROCESS
+// ============================================================================
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone, RenderLabel)]
 struct AsciiNodeLabel;
@@ -102,11 +298,17 @@ impl ViewNode for AsciiNode {
 
         let post_process = view_target.post_process_write();
 
-        // Get the pattern texture (or fallback to a dummy)
-        let pattern_texture_view = world
-            .get_resource::<PatternTextureResource>()
-            .map(|r| &r.texture_view)
-            .unwrap_or(&pipeline.fallback_texture_view);
+        // Try to get the pattern texture from the render target
+        let pattern_texture_view = if let Some(pattern_target) = world.get_resource::<PatternRenderTarget>() {
+            let gpu_images = world.resource::<RenderAssets<GpuImage>>();
+            if let Some(gpu_image) = gpu_images.get(&pattern_target.image) {
+                &gpu_image.texture_view
+            } else {
+                &pipeline.fallback_texture_view
+            }
+        } else {
+            &pipeline.fallback_texture_view
+        };
 
         let bind_group = render_context.render_device().create_bind_group(
             "ascii_bind_group",
@@ -181,37 +383,39 @@ impl FromWorld for AsciiPipeline {
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::R8Unorm,
+            format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         });
 
-        let fallback_texture_view = fallback_texture.create_view(&TextureViewDescriptor::default());
+        let fallback_texture_view =
+            fallback_texture.create_view(&TextureViewDescriptor::default());
 
         let shader = world.load_asset(ASCII_SHADER_PATH);
 
-        let pipeline_id = world.resource_mut::<PipelineCache>().queue_render_pipeline(
-            RenderPipelineDescriptor {
-                label: Some("ascii_pipeline".into()),
-                layout: vec![layout.clone()],
-                vertex: fullscreen_shader_vertex_state(),
-                fragment: Some(FragmentState {
-                    shader,
-                    shader_defs: vec![],
-                    entry_point: "fragment".into(),
-                    targets: vec![Some(ColorTargetState {
-                        format: TextureFormat::bevy_default(),
-                        blend: None,
-                        write_mask: ColorWrites::ALL,
-                    })],
-                }),
-                primitive: PrimitiveState::default(),
-                depth_stencil: None,
-                multisample: MultisampleState::default(),
-                push_constant_ranges: vec![],
-                zero_initialize_workgroup_memory: false,
-            },
-        );
+        let pipeline_id =
+            world
+                .resource_mut::<PipelineCache>()
+                .queue_render_pipeline(RenderPipelineDescriptor {
+                    label: Some("ascii_pipeline".into()),
+                    layout: vec![layout.clone()],
+                    vertex: fullscreen_shader_vertex_state(),
+                    fragment: Some(FragmentState {
+                        shader,
+                        shader_defs: vec![],
+                        entry_point: "fragment".into(),
+                        targets: vec![Some(ColorTargetState {
+                            format: TextureFormat::bevy_default(),
+                            blend: None,
+                            write_mask: ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: MultisampleState::default(),
+                    push_constant_ranges: vec![],
+                    zero_initialize_workgroup_memory: false,
+                });
 
         Self {
             layout,
@@ -220,45 +424,6 @@ impl FromWorld for AsciiPipeline {
             fallback_texture_view,
         }
     }
-}
-
-/// Resource holding the pattern texture for per-object mode
-#[derive(Resource)]
-struct PatternTextureResource {
-    texture_view: TextureView,
-}
-
-/// System to prepare the pattern texture
-fn prepare_pattern_texture(
-    mut commands: Commands,
-    render_device: Res<RenderDevice>,
-    mut texture_cache: ResMut<TextureCache>,
-) {
-    // For now, create a simple fallback texture
-    // In a full implementation, this would be populated by a prepass
-    // that renders object pattern IDs
-
-    let texture = texture_cache.get(
-        &render_device,
-        TextureDescriptor {
-            label: Some("ascii_pattern_texture"),
-            size: Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::R8Unorm,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-    );
-
-    let texture_view = texture.default_view.clone();
-
-    commands.insert_resource(PatternTextureResource { texture_view });
 }
 
 // ============================================================================
@@ -276,18 +441,21 @@ pub struct AsciiSettings {
     pub monochrome: f32,
     /// 0.0 = global pattern, 1.0 = per-object patterns
     pub per_object_mode: f32,
+    /// Global pattern ID (0-3) used when per_object_mode is 0
+    pub global_pattern: f32,
     /// Padding for GPU alignment
-    _padding: Vec2,
+    _padding: f32,
 }
 
 impl Default for AsciiSettings {
     fn default() -> Self {
         Self {
-            cell_size: Vec2::new(5.0, 9.0),
+            cell_size: Vec2::new(3.0, 5.0),
             resolution: Vec2::new(1280.0, 720.0),
             monochrome: 0.0,
             per_object_mode: 0.0,
-            _padding: Vec2::ZERO,
+            global_pattern: 0.0,
+            _padding: 0.0,
         }
     }
 }
@@ -344,9 +512,9 @@ impl AsciiSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Resource)]
 pub enum AsciiPreset {
     /// Ultra resolution - tiny characters, maximum detail (3x5)
+    #[default]
     Ultra,
     /// High resolution - small characters, more detail (5x9)
-    #[default]
     HighRes,
     /// Classic look - medium characters (8x14)
     Classic,
@@ -428,10 +596,7 @@ impl AsciiPatternId {
 }
 
 /// System to update resolution in settings based on window size
-pub fn update_ascii_resolution(
-    windows: Query<&Window>,
-    mut settings: Query<&mut AsciiSettings>,
-) {
+pub fn update_ascii_resolution(windows: Query<&Window>, mut settings: Query<&mut AsciiSettings>) {
     let Ok(window) = windows.single() else {
         return;
     };
@@ -475,6 +640,49 @@ pub fn toggle_ascii_monochrome(
     }
 }
 
+/// System to toggle per-object pattern mode with F3 key
+pub fn toggle_per_object_mode(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut settings: Query<&mut AsciiSettings>,
+) {
+    if keyboard.just_pressed(KeyCode::F3) {
+        for mut setting in &mut settings {
+            let new_mode = if setting.per_object_mode > 0.5 {
+                0.0
+            } else {
+                1.0
+            };
+            setting.per_object_mode = new_mode;
+            info!(
+                "Per-Object Patterns: {}",
+                if new_mode > 0.5 { "ON" } else { "OFF" }
+            );
+        }
+    }
+}
+
+/// System to cycle global pattern with F4 key
+pub fn cycle_global_pattern(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut settings: Query<&mut AsciiSettings>,
+) {
+    if keyboard.just_pressed(KeyCode::F4) {
+        for mut setting in &mut settings {
+            let current = setting.global_pattern as u32;
+            let next = (current + 1) % 4;
+            setting.global_pattern = next as f32;
+            let name = match next {
+                0 => "Standard",
+                1 => "Blocks",
+                2 => "Slashes",
+                3 => "Binary",
+                _ => "Unknown",
+            };
+            info!("Global Pattern: {} ({})", next, name);
+        }
+    }
+}
+
 // ============================================================================
 // TESTS
 // ============================================================================
@@ -486,9 +694,10 @@ mod tests {
     #[test]
     fn test_ascii_settings_default() {
         let settings = AsciiSettings::default();
-        assert_eq!(settings.cell_size, Vec2::new(5.0, 9.0));
+        assert_eq!(settings.cell_size, Vec2::new(3.0, 5.0));
         assert_eq!(settings.monochrome, 0.0);
         assert_eq!(settings.per_object_mode, 0.0);
+        assert_eq!(settings.global_pattern, 0.0);
     }
 
     #[test]

@@ -37,6 +37,8 @@ fn main() {
             rendering::update_ascii_resolution,
             rendering::cycle_ascii_preset,
             rendering::toggle_ascii_monochrome,
+            rendering::toggle_per_object_mode,
+            rendering::cycle_global_pattern,
         ))
         .run();
 }

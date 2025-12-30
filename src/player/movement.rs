@@ -20,7 +20,7 @@ impl Default for MovementConfig {
         Self {
             sv_maxspeed: 8.0,        // ~8 m/s running speed
             sv_accelerate: 10.0,     // Acceleration feels good as-is
-            sv_airaccelerate: 20.0,  // Air accel for bunny hop
+            sv_airaccelerate: 15.0,  // Air accel for bunny hop (reduced for smoother buildup)
             sv_friction: 6.0,        // Friction coefficient
             sv_gravity: 20.0,        // Slightly stronger than real (9.8)
             sv_jumpspeed: 7.0,       // ~1.2m jump height
@@ -144,7 +144,7 @@ mod tests {
 
         assert!(approx_eq(config.sv_maxspeed, 8.0));
         assert!(approx_eq(config.sv_accelerate, 10.0));
-        assert!(approx_eq(config.sv_airaccelerate, 20.0));
+        assert!(approx_eq(config.sv_airaccelerate, 15.0));
         assert!(approx_eq(config.sv_friction, 6.0));
         assert!(approx_eq(config.sv_gravity, 20.0));
         assert!(approx_eq(config.sv_jumpspeed, 7.0));

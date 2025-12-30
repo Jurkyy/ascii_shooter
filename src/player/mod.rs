@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::core_pipeline::prepass::DepthPrepass;
 use bevy::ecs::hierarchy::ChildOf;
 use bevy::input::mouse::MouseMotion;
 use bevy::window::{CursorGrabMode, WindowFocused};
@@ -120,6 +121,8 @@ fn spawn_player(
         PlayerCamera::default(),
         ViewSway::default(),
         AsciiSettings::default(), // Enable ASCII post-processing
+        DepthPrepass,             // Required for per-object ASCII patterns
+        Msaa::Off,                // Disable MSAA for pattern prepass compatibility
         ChildOf(player),
     )).id();
 

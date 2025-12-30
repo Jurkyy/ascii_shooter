@@ -16,8 +16,10 @@ struct AsciiSettings {
     monochrome: f32,
     // 0 = global pattern, 1 = per-object patterns
     per_object_mode: f32,
+    // Global pattern ID (0-3) used when per_object_mode is 0
+    global_pattern: f32,
     // Padding for alignment
-    _padding: vec2<f32>,
+    _padding: f32,
 }
 @group(0) @binding(2) var<uniform> settings: AsciiSettings;
 
@@ -197,24 +199,27 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let avg_color = total_color / 5.0;
 
     // Determine pattern ID
-    var pattern_id: u32 = 0u;
+    var pattern_id: u32 = u32(settings.global_pattern);
 
     if settings.per_object_mode > 0.5 {
         // Per-object mode: sample pattern ID from pattern texture
-        // Pattern ID is encoded in the red channel (0-255 mapped to 0-1)
+        // Pattern ID is encoded in the red channel as value / 4.0 (0-3 → 0.0-0.75)
         let pattern_sample = textureSample(pattern_texture, texture_sampler, cell_center_uv);
-        pattern_id = u32(pattern_sample.r * 255.0 + 0.5);
+        // Decode: multiply by 4 and round (add 0.5 for rounding)
+        pattern_id = u32(pattern_sample.r * 4.0 + 0.5);
     }
 
     // Get brightness and map to character index (0-9)
     let brightness = luminance(avg_color);
-    let char_index = u32(clamp(brightness * 10.0, 0.0, 9.0));
+    // Boost darker areas so patterns are visible even on dim surfaces
+    let boosted_brightness = pow(brightness, 0.7); // Gamma correction to lift shadows
+    let char_index = u32(clamp(boosted_brightness * 10.0, 0.0, 9.0));
 
     // Get the pixel value from the character bitmap
     let char_pixel = get_char_pixel(pattern_id, char_index, char_local_x, char_local_y);
 
     // Boost brightness for better visibility
-    let boosted_color = avg_color * 1.4;
+    let boosted_color = avg_color * 1.6;
 
     // Output color
     var output_color: vec3<f32>;
@@ -223,12 +228,13 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if settings.monochrome > 0.5 {
         // Classic green terminal look
         let green = vec3<f32>(0.0, 1.0, 0.3);
-        output_color = green * char_pixel * brightness * 1.3;
-        bg_color = green * brightness * 0.15;
+        output_color = green * char_pixel * brightness * 1.5;
+        bg_color = green * brightness * 0.1;
     } else {
         // Colored ASCII - use original color tinted by character
+        // Higher contrast: brighter characters, darker background
         output_color = boosted_color * char_pixel;
-        bg_color = boosted_color * 0.35;
+        bg_color = boosted_color * 0.15;
     }
 
     // Background fill for non-character pixels

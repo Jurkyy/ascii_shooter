@@ -172,6 +172,8 @@ name = "ascii_shooter"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "bytemuck",
+ "wgpu-types",
 ]
 
 [[package]]
