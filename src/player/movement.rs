@@ -81,7 +81,7 @@ pub fn air_accelerate(
     dt: f32,
 ) -> Vec3 {
     // Higher cap allows sharper turns without losing speed
-    let wish_speed = wish_speed.min(4.0);
+    let wish_speed = wish_speed.min(8.0);
 
     let current_speed = velocity.dot(wish_dir);
     let add_speed = wish_speed - current_speed;

@@ -1,6 +1,6 @@
 # Building an ASCII Boomer Shooter in Rust
 
-*A game dev's journey into Bevy, Quake physics, and the art of game feel*
+*A journey into Bevy, Quake physics, and the art of game feel*
 
 ---
 
@@ -8,13 +8,13 @@
 
 I wanted to build something that combined a few interests: retro FPS movement, ASCII art aesthetics, and learning Rust game development. The goal? A first-person shooter with authentic Quake-style bunny hopping, rendered with a post-process ASCII effect. Think DOOM meets a terminal.
 
-This blog documents the process of building the foundation - getting that buttery smooth movement feeling right before worrying about ASCII shaders or combat.
+This blog documents the process of building the foundation - getting that buttery smooth movement feeling right before worrying about ASCII shaders, combat or even gameplay for that matter.
 
 ---
 
 ## Part 1: Setting Up Bevy 0.15
 
-Bevy is a data-driven game engine built in Rust using an Entity Component System (ECS) architecture. If you're coming from Unity or Godot, it's a different mental model - instead of inheritance hierarchies, you compose entities from components and write systems that operate on them.
+Bevy is a data-driven game engine built in Rust using an Entity Component System (ECS) architecture. If you're coming from Unity or Godot, it's a different mental model - instead of inheritance hierarchies, you compose entities from components and write systems that operate on them. It was quite hard getting to grips with this in the beginning, I had never worked with something like it. However, when it clicked, it started to seem like a whole different type of approach that I had never considered before was possible.
 
 ### Project Setup
 
@@ -33,7 +33,7 @@ bevy = { version = "0.15", features = ["dynamic_linking"] }
 opt-level = 3
 ```
 
-The `dynamic_linking` feature is crucial during development - it cuts rebuild times from 30+ seconds to under 2 seconds after the initial compile. Bevy is a big crate.
+The `dynamic_linking` feature is crucial during development - it cuts rebuild times from 30+ seconds to under 2 seconds after the initial compile. Bevy is a big crate. Perhaps a fun step in this journey could be rewriting the needed components of Bevy in my own "engine" crate?
 
 ### App Structure
 
@@ -195,7 +195,7 @@ impl Default for MovementConfig {
 
 ### Auto-Bunny Hop
 
-Classic Quake required frame-perfect jump timing. For this project, I implemented auto-bhop - hold space to jump the instant you land:
+Classic Quake required frame-perfect jump timing. For this project, I implemented auto-bhop - hold space to jump the instant you land. Im heavily considering to rework this, but it is quite nice for testing whilst I'm still developing:
 
 ```rust
 fn player_movement(/* ... */) {
@@ -213,7 +213,7 @@ fn player_input(/* ... */) {
 }
 ```
 
-The key is using `pressed()` instead of `just_pressed()` - the jump triggers the frame you land, not the frame you press.
+The key to auto-bhop here, is using `pressed()` instead of `just_pressed()` - the jump triggers the frame you land, not the frame you press.
 
 ---
 
@@ -356,7 +356,7 @@ let vm_offset_y = sway.landing_offset * 8.0 + sway.bob_amount.y * 2.0;
 vm_transform.translation.y = -0.12 + vm_offset_y;
 ```
 
-The landing impact is multiplied by 8x on the viewmodel - arms should react more dramatically than the camera for visual feedback.
+The landing impact is multiplied by 8x on the viewmodel - arms should react more dramatically than the camera for visual feedback without distoring the feeling of "balance".
 
 ---
 
@@ -401,7 +401,37 @@ What's missing:
 
 ## What's Next
 
-Phase 3 is the ASCII shader - the core visual hook. The plan:
+The TODO I wrote looks like this currently:
+```md
+## Completed
+
+### Phase 1: Project Foundation
+- [x] Initialize Rust project with Bevy
+- [x] Set up app structure with game states (Menu, Playing, Paused)
+- [x] Create test level (floor, walls, pillars)
+- [x] Basic lighting (point lights, ambient)
+
+### Phase 2: Quake-Style Movement
+- [x] Player controller with Transform, Velocity, PlayerState
+- [x] Mouse look (pitch clamped, yaw unlimited)
+- [x] Ground movement (acceleration-based, friction, max speed)
+- [x] Air movement (reduced accel, no friction)
+- [x] Jumping and bunny hopping (auto-bhop on hold)
+- [x] Collision detection with wall sliding
+- [x] Velocity HUD
+- [x] View sway system (bob, landing impact, velocity tilt)
+- [x] Viewmodel arms that react to movement
+---
+
+## Phase 3: ASCII Post-Process Effect
+Some fun with WGSL. 
+
+## Phase 4: Combat Prototype
+???
+
+```
+
+Phase 3 of my TODO is the ASCII shader - the core visual hook. The plan:
 
 1. Render the scene to a texture
 2. Divide into character cells (8x12 pixels)
