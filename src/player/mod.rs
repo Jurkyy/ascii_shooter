@@ -5,6 +5,7 @@ use bevy::window::{CursorGrabMode, WindowFocused};
 
 use crate::GameState;
 use crate::level::BoxCollider;
+use crate::rendering::AsciiSettings;
 
 pub mod movement;
 pub mod input;
@@ -118,6 +119,7 @@ fn spawn_player(
         Transform::from_xyz(0.0, eye_offset, 0.0),
         PlayerCamera::default(),
         ViewSway::default(),
+        AsciiSettings::default(), // Enable ASCII post-processing
         ChildOf(player),
     )).id();
 

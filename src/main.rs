@@ -29,8 +29,12 @@ fn main() {
         .add_plugins((
             player::PlayerPlugin,
             level::LevelPlugin,
+            rendering::AsciiRenderPlugin,
         ))
-        .add_systems(Update, handle_game_state_input)
+        .add_systems(Update, (
+            handle_game_state_input,
+            rendering::update_ascii_resolution,
+        ))
         .run();
 }
 
