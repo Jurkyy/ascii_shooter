@@ -121,3 +121,261 @@ pub fn apply_friction(velocity: Vec3, friction: f32, stop_speed: f32, dt: f32) -
         Vec3::ZERO
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const EPSILON: f32 = 0.0001;
+
+    fn approx_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < EPSILON
+    }
+
+    fn vec3_approx_eq(a: Vec3, b: Vec3) -> bool {
+        approx_eq(a.x, b.x) && approx_eq(a.y, b.y) && approx_eq(a.z, b.z)
+    }
+
+    // ==================== MovementConfig Tests ====================
+
+    #[test]
+    fn test_movement_config_defaults() {
+        let config = MovementConfig::default();
+
+        assert!(approx_eq(config.sv_maxspeed, 8.0));
+        assert!(approx_eq(config.sv_accelerate, 10.0));
+        assert!(approx_eq(config.sv_airaccelerate, 20.0));
+        assert!(approx_eq(config.sv_friction, 6.0));
+        assert!(approx_eq(config.sv_gravity, 20.0));
+        assert!(approx_eq(config.sv_jumpspeed, 7.0));
+        assert!(approx_eq(config.player_height, 1.8));
+        assert!(approx_eq(config.player_radius, 0.4));
+    }
+
+    // ==================== Accelerate Tests ====================
+
+    #[test]
+    fn test_accelerate_from_standstill() {
+        let velocity = Vec3::ZERO;
+        let wish_dir = Vec3::new(0.0, 0.0, -1.0); // Forward
+        let wish_speed = 8.0;
+        let accel = 10.0;
+        let dt = 0.016; // ~60fps
+
+        let result = accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Should accelerate in wish direction
+        assert!(result.z < 0.0);
+        assert!(approx_eq(result.x, 0.0));
+        assert!(approx_eq(result.y, 0.0));
+    }
+
+    #[test]
+    fn test_accelerate_already_at_max_speed() {
+        let velocity = Vec3::new(0.0, 0.0, -8.0); // Already at max speed
+        let wish_dir = Vec3::new(0.0, 0.0, -1.0);
+        let wish_speed = 8.0;
+        let accel = 10.0;
+        let dt = 0.016;
+
+        let result = accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Should not accelerate further
+        assert!(vec3_approx_eq(result, velocity));
+    }
+
+    #[test]
+    fn test_accelerate_above_max_speed_no_change() {
+        let velocity = Vec3::new(0.0, 0.0, -15.0); // Above max
+        let wish_dir = Vec3::new(0.0, 0.0, -1.0);
+        let wish_speed = 8.0;
+        let accel = 10.0;
+        let dt = 0.016;
+
+        let result = accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Should not change velocity when already above max
+        assert!(vec3_approx_eq(result, velocity));
+    }
+
+    #[test]
+    fn test_accelerate_perpendicular_strafe() {
+        let velocity = Vec3::new(0.0, 0.0, -8.0); // Moving forward at max
+        let wish_dir = Vec3::new(1.0, 0.0, 0.0);  // Strafe right
+        let wish_speed = 8.0;
+        let accel = 10.0;
+        let dt = 0.016;
+
+        let result = accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Should add strafe velocity
+        assert!(result.x > 0.0);
+        // Forward velocity unchanged
+        assert!(approx_eq(result.z, velocity.z));
+    }
+
+    // ==================== Air Accelerate Tests ====================
+
+    #[test]
+    fn test_air_accelerate_basic() {
+        let velocity = Vec3::new(0.0, 0.0, -5.0);
+        let wish_dir = Vec3::new(1.0, 0.0, 0.0); // Strafe
+        let wish_speed = 8.0;
+        let accel = 20.0;
+        let dt = 0.016;
+
+        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Should gain speed in strafe direction
+        assert!(result.x > 0.0);
+    }
+
+    #[test]
+    fn test_air_accelerate_speed_cap() {
+        let velocity = Vec3::new(25.0, 0.0, -15.0); // High horizontal speed
+        let wish_dir = Vec3::new(1.0, 0.0, 0.0);
+        let wish_speed = 8.0;
+        let accel = 20.0;
+        let dt = 0.016;
+
+        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Should cap at 30 m/s horizontal
+        let horiz_speed = Vec2::new(result.x, result.z).length();
+        assert!(horiz_speed <= 30.0 + EPSILON);
+    }
+
+    #[test]
+    fn test_air_accelerate_preserves_vertical() {
+        let velocity = Vec3::new(5.0, -10.0, 5.0); // Falling
+        let wish_dir = Vec3::new(1.0, 0.0, 0.0);
+        let wish_speed = 8.0;
+        let accel = 20.0;
+        let dt = 0.016;
+
+        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, dt);
+
+        // Y velocity should be unchanged
+        assert!(approx_eq(result.y, velocity.y));
+    }
+
+    // ==================== Friction Tests ====================
+
+    #[test]
+    fn test_friction_reduces_speed() {
+        let velocity = Vec3::new(0.0, 0.0, -8.0);
+        let friction = 6.0;
+        let stop_speed = 2.5;
+        let dt = 0.016;
+
+        let result = apply_friction(velocity, friction, stop_speed, dt);
+
+        // Speed should decrease
+        assert!(result.length() < velocity.length());
+        // Direction should be preserved
+        assert!(result.z < 0.0);
+    }
+
+    #[test]
+    fn test_friction_stops_slow_movement() {
+        let velocity = Vec3::new(0.0, 0.0, -0.05); // Very slow
+        let friction = 6.0;
+        let stop_speed = 2.5;
+        let dt = 0.016;
+
+        let result = apply_friction(velocity, friction, stop_speed, dt);
+
+        // Should stop completely
+        assert!(vec3_approx_eq(result, Vec3::ZERO));
+    }
+
+    #[test]
+    fn test_friction_preserves_direction() {
+        let velocity = Vec3::new(3.0, 0.0, -4.0); // Diagonal movement
+        let friction = 6.0;
+        let stop_speed = 2.5;
+        let dt = 0.016;
+
+        let result = apply_friction(velocity, friction, stop_speed, dt);
+
+        // Direction should be same (normalized)
+        let orig_dir = velocity.normalize();
+        let new_dir = result.normalize();
+        assert!(vec3_approx_eq(orig_dir, new_dir));
+    }
+
+    #[test]
+    fn test_friction_zero_velocity() {
+        let velocity = Vec3::ZERO;
+        let friction = 6.0;
+        let stop_speed = 2.5;
+        let dt = 0.016;
+
+        let result = apply_friction(velocity, friction, stop_speed, dt);
+
+        assert!(vec3_approx_eq(result, Vec3::ZERO));
+    }
+
+    // ==================== PlayerState Tests ====================
+
+    #[test]
+    fn test_player_state_default() {
+        let state = PlayerState::default();
+
+        assert!(!state.grounded);
+        assert!(!state.wish_jump);
+    }
+
+    // ==================== Velocity Tests ====================
+
+    #[test]
+    fn test_velocity_default() {
+        let vel = Velocity::default();
+
+        assert!(vec3_approx_eq(vel.0, Vec3::ZERO));
+    }
+
+    // ==================== Integration-style Tests ====================
+
+    #[test]
+    fn test_bunny_hop_gains_speed() {
+        // Simulate a bunny hop: forward velocity + strafe input in air
+        let mut velocity = Vec3::new(0.0, 0.0, -8.0);
+        let accel = 20.0;
+        let dt = 0.016;
+
+        // Strafe right while moving forward
+        let wish_dir = Vec3::new(0.7071, 0.0, -0.7071).normalize(); // 45 degrees
+
+        let initial_speed = Vec2::new(velocity.x, velocity.z).length();
+
+        // Apply air acceleration for several frames
+        for _ in 0..10 {
+            velocity = air_accelerate(velocity, wish_dir, 8.0, accel, dt);
+        }
+
+        let final_speed = Vec2::new(velocity.x, velocity.z).length();
+
+        // Speed should increase (bunny hop effect)
+        assert!(final_speed > initial_speed);
+    }
+
+    #[test]
+    fn test_ground_movement_caps_at_maxspeed() {
+        let mut velocity = Vec3::ZERO;
+        let wish_dir = Vec3::new(0.0, 0.0, -1.0);
+        let wish_speed = 8.0;
+        let accel = 10.0;
+        let dt = 0.016;
+
+        // Accelerate for many frames
+        for _ in 0..1000 {
+            velocity = accelerate(velocity, wish_dir, wish_speed, accel, dt);
+        }
+
+        let speed = velocity.length();
+
+        // Should cap at wish_speed
+        assert!(speed <= wish_speed + EPSILON);
+    }
+}
