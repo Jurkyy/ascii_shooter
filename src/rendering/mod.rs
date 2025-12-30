@@ -1,5 +1,6 @@
 // ASCII Post-Processing Effect
 // Renders the scene as ASCII art
+// Supports both global and per-object pattern modes
 
 use bevy::{
     core_pipeline::{
@@ -21,8 +22,9 @@ use bevy::{
             *,
         },
         renderer::{RenderContext, RenderDevice},
+        texture::{CachedTexture, TextureCache},
         view::ViewTarget,
-        RenderApp,
+        Extract, Render, RenderApp, RenderSet,
     },
 };
 
@@ -42,6 +44,7 @@ impl Plugin for AsciiRenderPlugin {
         };
 
         render_app
+            .add_systems(Render, prepare_pattern_texture.in_set(RenderSet::PrepareResources))
             .add_render_graph_node::<ViewNodeRunner<AsciiNode>>(
                 Core3d,
                 AsciiNodeLabel,
@@ -99,6 +102,12 @@ impl ViewNode for AsciiNode {
 
         let post_process = view_target.post_process_write();
 
+        // Get the pattern texture (or fallback to a dummy)
+        let pattern_texture_view = world
+            .get_resource::<PatternTextureResource>()
+            .map(|r| &r.texture_view)
+            .unwrap_or(&pipeline.fallback_texture_view);
+
         let bind_group = render_context.render_device().create_bind_group(
             "ascii_bind_group",
             &pipeline.layout,
@@ -106,6 +115,7 @@ impl ViewNode for AsciiNode {
                 post_process.source,
                 &pipeline.sampler,
                 settings_binding.clone(),
+                pattern_texture_view,
             )),
         );
 
@@ -134,6 +144,7 @@ struct AsciiPipeline {
     layout: BindGroupLayout,
     sampler: Sampler,
     pipeline_id: CachedRenderPipelineId,
+    fallback_texture_view: TextureView,
 }
 
 impl FromWorld for AsciiPipeline {
@@ -145,14 +156,37 @@ impl FromWorld for AsciiPipeline {
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::FRAGMENT,
                 (
+                    // Screen texture
                     texture_2d(TextureSampleType::Float { filterable: true }),
+                    // Sampler
                     sampler(SamplerBindingType::Filtering),
+                    // Settings uniform
                     uniform_buffer::<AsciiSettings>(true),
+                    // Pattern ID texture (for per-object mode)
+                    texture_2d(TextureSampleType::Float { filterable: true }),
                 ),
             ),
         );
 
         let sampler = render_device.create_sampler(&SamplerDescriptor::default());
+
+        // Create a 1x1 fallback texture for when per-object mode is disabled
+        let fallback_texture = render_device.create_texture(&TextureDescriptor {
+            label: Some("ascii_fallback_pattern_texture"),
+            size: Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let fallback_texture_view = fallback_texture.create_view(&TextureViewDescriptor::default());
 
         let shader = world.load_asset(ASCII_SHADER_PATH);
 
@@ -183,9 +217,53 @@ impl FromWorld for AsciiPipeline {
             layout,
             sampler,
             pipeline_id,
+            fallback_texture_view,
         }
     }
 }
+
+/// Resource holding the pattern texture for per-object mode
+#[derive(Resource)]
+struct PatternTextureResource {
+    texture_view: TextureView,
+}
+
+/// System to prepare the pattern texture
+fn prepare_pattern_texture(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    mut texture_cache: ResMut<TextureCache>,
+) {
+    // For now, create a simple fallback texture
+    // In a full implementation, this would be populated by a prepass
+    // that renders object pattern IDs
+
+    let texture = texture_cache.get(
+        &render_device,
+        TextureDescriptor {
+            label: Some("ascii_pattern_texture"),
+            size: Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::R8Unorm,
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+    );
+
+    let texture_view = texture.default_view.clone();
+
+    commands.insert_resource(PatternTextureResource { texture_view });
+}
+
+// ============================================================================
+// PUBLIC API
+// ============================================================================
 
 /// ASCII rendering settings - attach to camera to enable effect
 #[derive(Component, Clone, Copy, ExtractComponent, ShaderType)]
@@ -196,8 +274,10 @@ pub struct AsciiSettings {
     pub resolution: Vec2,
     /// 0.0 = colored, 1.0 = monochrome green
     pub monochrome: f32,
+    /// 0.0 = global pattern, 1.0 = per-object patterns
+    pub per_object_mode: f32,
     /// Padding for GPU alignment
-    _padding: Vec3,
+    _padding: Vec2,
 }
 
 impl Default for AsciiSettings {
@@ -206,12 +286,14 @@ impl Default for AsciiSettings {
             cell_size: Vec2::new(8.0, 14.0),
             resolution: Vec2::new(1280.0, 720.0),
             monochrome: 0.0,
-            _padding: Vec3::ZERO,
+            per_object_mode: 0.0,
+            _padding: Vec2::ZERO,
         }
     }
 }
 
 impl AsciiSettings {
+    /// Create settings with custom cell size
     pub fn new(cell_width: f32, cell_height: f32) -> Self {
         Self {
             cell_size: Vec2::new(cell_width, cell_height),
@@ -219,11 +301,75 @@ impl AsciiSettings {
         }
     }
 
+    /// Create monochrome (green terminal) settings
     pub fn monochrome() -> Self {
         Self {
             monochrome: 1.0,
             ..default()
         }
+    }
+
+    /// Enable per-object pattern mode
+    pub fn with_per_object_patterns(mut self) -> Self {
+        self.per_object_mode = 1.0;
+        self
+    }
+
+    /// Set monochrome mode
+    pub fn with_monochrome(mut self, enabled: bool) -> Self {
+        self.monochrome = if enabled { 1.0 } else { 0.0 };
+        self
+    }
+}
+
+/// ASCII pattern types for per-object rendering
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AsciiPattern {
+    /// Standard ASCII: " .:-=+*#%@"
+    #[default]
+    Standard = 0,
+    /// Block/Box characters (solid look)
+    Blocks = 1,
+    /// Slashes and diagonals
+    Slashes = 2,
+    /// Binary/Digital (0s and 1s)
+    Binary = 3,
+}
+
+impl AsciiPattern {
+    /// Get the pattern ID as a u8 for GPU encoding
+    pub fn as_id(&self) -> u8 {
+        *self as u8
+    }
+}
+
+/// Component to assign an ASCII pattern to an object
+/// When AsciiSettings::per_object_mode is enabled, objects with this component
+/// will use their specified pattern instead of the global pattern
+#[derive(Component, Clone, Copy, Default)]
+pub struct AsciiPatternId {
+    pub pattern: AsciiPattern,
+}
+
+impl AsciiPatternId {
+    pub fn new(pattern: AsciiPattern) -> Self {
+        Self { pattern }
+    }
+
+    pub fn standard() -> Self {
+        Self::new(AsciiPattern::Standard)
+    }
+
+    pub fn blocks() -> Self {
+        Self::new(AsciiPattern::Blocks)
+    }
+
+    pub fn slashes() -> Self {
+        Self::new(AsciiPattern::Slashes)
+    }
+
+    pub fn binary() -> Self {
+        Self::new(AsciiPattern::Binary)
     }
 }
 
@@ -242,5 +388,56 @@ pub fn update_ascii_resolution(
         if setting.resolution != resolution {
             setting.resolution = resolution;
         }
+    }
+}
+
+// ============================================================================
+// TESTS
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ascii_settings_default() {
+        let settings = AsciiSettings::default();
+        assert_eq!(settings.cell_size, Vec2::new(8.0, 14.0));
+        assert_eq!(settings.monochrome, 0.0);
+        assert_eq!(settings.per_object_mode, 0.0);
+    }
+
+    #[test]
+    fn test_ascii_settings_monochrome() {
+        let settings = AsciiSettings::monochrome();
+        assert_eq!(settings.monochrome, 1.0);
+    }
+
+    #[test]
+    fn test_ascii_settings_per_object() {
+        let settings = AsciiSettings::default().with_per_object_patterns();
+        assert_eq!(settings.per_object_mode, 1.0);
+    }
+
+    #[test]
+    fn test_ascii_settings_custom_cell_size() {
+        let settings = AsciiSettings::new(10.0, 16.0);
+        assert_eq!(settings.cell_size, Vec2::new(10.0, 16.0));
+    }
+
+    #[test]
+    fn test_ascii_pattern_ids() {
+        assert_eq!(AsciiPattern::Standard.as_id(), 0);
+        assert_eq!(AsciiPattern::Blocks.as_id(), 1);
+        assert_eq!(AsciiPattern::Slashes.as_id(), 2);
+        assert_eq!(AsciiPattern::Binary.as_id(), 3);
+    }
+
+    #[test]
+    fn test_ascii_pattern_id_constructors() {
+        assert_eq!(AsciiPatternId::standard().pattern, AsciiPattern::Standard);
+        assert_eq!(AsciiPatternId::blocks().pattern, AsciiPattern::Blocks);
+        assert_eq!(AsciiPatternId::slashes().pattern, AsciiPattern::Slashes);
+        assert_eq!(AsciiPatternId::binary().pattern, AsciiPattern::Binary);
     }
 }
