@@ -213,19 +213,25 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     // Get the pixel value from the character bitmap
     let char_pixel = get_char_pixel(pattern_id, char_index, char_local_x, char_local_y);
 
+    // Boost brightness for better visibility
+    let boosted_color = avg_color * 1.4;
+
     // Output color
     var output_color: vec3<f32>;
+    var bg_color: vec3<f32>;
 
     if settings.monochrome > 0.5 {
         // Classic green terminal look
-        output_color = vec3<f32>(0.0, 1.0, 0.3) * char_pixel * brightness;
+        let green = vec3<f32>(0.0, 1.0, 0.3);
+        output_color = green * char_pixel * brightness * 1.3;
+        bg_color = green * brightness * 0.15;
     } else {
         // Colored ASCII - use original color tinted by character
-        output_color = avg_color * char_pixel;
+        output_color = boosted_color * char_pixel;
+        bg_color = boosted_color * 0.35;
     }
 
-    // Add slight background for visibility
-    let bg_color = avg_color * 0.1;
+    // Background fill for non-character pixels
     output_color = mix(bg_color, output_color, char_pixel);
 
     return vec4<f32>(output_color, 1.0);

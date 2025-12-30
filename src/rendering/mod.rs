@@ -283,7 +283,7 @@ pub struct AsciiSettings {
 impl Default for AsciiSettings {
     fn default() -> Self {
         Self {
-            cell_size: Vec2::new(8.0, 14.0),
+            cell_size: Vec2::new(5.0, 9.0),
             resolution: Vec2::new(1280.0, 720.0),
             monochrome: 0.0,
             per_object_mode: 0.0,
@@ -319,6 +319,60 @@ impl AsciiSettings {
     pub fn with_monochrome(mut self, enabled: bool) -> Self {
         self.monochrome = if enabled { 1.0 } else { 0.0 };
         self
+    }
+
+    /// Apply a preset to these settings
+    pub fn apply_preset(&mut self, preset: AsciiPreset) {
+        match preset {
+            AsciiPreset::Ultra => {
+                self.cell_size = Vec2::new(3.0, 5.0);
+            }
+            AsciiPreset::HighRes => {
+                self.cell_size = Vec2::new(5.0, 9.0);
+            }
+            AsciiPreset::Classic => {
+                self.cell_size = Vec2::new(8.0, 14.0);
+            }
+            AsciiPreset::Chunky => {
+                self.cell_size = Vec2::new(12.0, 20.0);
+            }
+        }
+    }
+}
+
+/// Visual presets for ASCII rendering
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Resource)]
+pub enum AsciiPreset {
+    /// Ultra resolution - tiny characters, maximum detail (3x5)
+    Ultra,
+    /// High resolution - small characters, more detail (5x9)
+    #[default]
+    HighRes,
+    /// Classic look - medium characters (8x14)
+    Classic,
+    /// Chunky retro - large characters (12x20)
+    Chunky,
+}
+
+impl AsciiPreset {
+    /// Cycle to the next preset
+    pub fn next(self) -> Self {
+        match self {
+            AsciiPreset::Ultra => AsciiPreset::HighRes,
+            AsciiPreset::HighRes => AsciiPreset::Classic,
+            AsciiPreset::Classic => AsciiPreset::Chunky,
+            AsciiPreset::Chunky => AsciiPreset::Ultra,
+        }
+    }
+
+    /// Get display name for this preset
+    pub fn name(&self) -> &'static str {
+        match self {
+            AsciiPreset::Ultra => "Ultra (3x5)",
+            AsciiPreset::HighRes => "High-Res (5x9)",
+            AsciiPreset::Classic => "Classic (8x14)",
+            AsciiPreset::Chunky => "Chunky (12x20)",
+        }
     }
 }
 
@@ -391,6 +445,36 @@ pub fn update_ascii_resolution(
     }
 }
 
+/// System to cycle ASCII presets with F1 key
+pub fn cycle_ascii_preset(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut preset: ResMut<AsciiPreset>,
+    mut settings: Query<&mut AsciiSettings>,
+) {
+    if keyboard.just_pressed(KeyCode::F1) {
+        *preset = preset.next();
+        info!("ASCII Preset: {}", preset.name());
+
+        for mut setting in &mut settings {
+            setting.apply_preset(*preset);
+        }
+    }
+}
+
+/// System to toggle monochrome mode with F2 key
+pub fn toggle_ascii_monochrome(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut settings: Query<&mut AsciiSettings>,
+) {
+    if keyboard.just_pressed(KeyCode::F2) {
+        for mut setting in &mut settings {
+            let new_mono = if setting.monochrome > 0.5 { 0.0 } else { 1.0 };
+            setting.monochrome = new_mono;
+            info!("Monochrome: {}", if new_mono > 0.5 { "ON" } else { "OFF" });
+        }
+    }
+}
+
 // ============================================================================
 // TESTS
 // ============================================================================
@@ -402,7 +486,7 @@ mod tests {
     #[test]
     fn test_ascii_settings_default() {
         let settings = AsciiSettings::default();
-        assert_eq!(settings.cell_size, Vec2::new(8.0, 14.0));
+        assert_eq!(settings.cell_size, Vec2::new(5.0, 9.0));
         assert_eq!(settings.monochrome, 0.0);
         assert_eq!(settings.per_object_mode, 0.0);
     }

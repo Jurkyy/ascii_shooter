@@ -31,9 +31,12 @@ fn main() {
             level::LevelPlugin,
             rendering::AsciiRenderPlugin,
         ))
+        .init_resource::<rendering::AsciiPreset>()
         .add_systems(Update, (
             handle_game_state_input,
             rendering::update_ascii_resolution,
+            rendering::cycle_ascii_preset,
+            rendering::toggle_ascii_monochrome,
         ))
         .run();
 }
