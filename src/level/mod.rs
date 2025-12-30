@@ -137,5 +137,6 @@ fn spawn_test_level(
     commands.insert_resource(AmbientLight {
         color: Color::srgb(0.7, 0.75, 0.8),
         brightness: 300.0,
+        ..default()
     });
 }

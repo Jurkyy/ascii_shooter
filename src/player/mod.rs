@@ -1,4 +1,5 @@
 use bevy::prelude::*;
+use bevy::ecs::hierarchy::ChildOf;
 use bevy::input::mouse::MouseMotion;
 use bevy::window::{CursorGrabMode, WindowFocused};
 
@@ -99,6 +100,7 @@ fn spawn_player(
         .spawn((
             Player,
             Transform::from_xyz(0.0, config.player_height / 2.0 + 0.1, 10.0),
+            Visibility::default(),
             Velocity::default(),
             PlayerState::default(),
             WishDir::default(),
@@ -116,7 +118,8 @@ fn spawn_player(
         Transform::from_xyz(0.0, eye_offset, 0.0),
         PlayerCamera::default(),
         ViewSway::default(),
-    )).set_parent(player).id();
+        ChildOf(player),
+    )).id();
 
     // Spawn viewmodel (simple "arms" representation) as child of camera
     // Position: slightly down and forward from camera
@@ -132,7 +135,8 @@ fn spawn_player(
         MeshMaterial3d(arm_material.clone()),
         Transform::from_xyz(0.15, -0.12, -0.25),
         ViewModel,
-    )).set_parent(camera);
+        ChildOf(camera),
+    ));
 
     // Left "arm"
     commands.spawn((
@@ -140,7 +144,8 @@ fn spawn_player(
         MeshMaterial3d(arm_material),
         Transform::from_xyz(-0.15, -0.12, -0.25),
         ViewModel,
-    )).set_parent(camera);
+        ChildOf(camera),
+    ));
 }
 
 #[derive(Component)]
@@ -168,11 +173,11 @@ fn update_velocity_hud(
     player_query: Query<&Velocity, With<Player>>,
     mut hud_query: Query<&mut Text, With<VelocityHud>>,
 ) {
-    let Ok(velocity) = player_query.get_single() else {
+    let Ok(velocity) = player_query.single() else {
         return;
     };
 
-    let Ok(mut text) = hud_query.get_single_mut() else {
+    let Ok(mut text) = hud_query.single_mut() else {
         return;
     };
 
@@ -182,14 +187,14 @@ fn update_velocity_hud(
 }
 
 fn grab_cursor(mut windows: Query<&mut Window>) {
-    if let Ok(mut window) = windows.get_single_mut() {
+    if let Ok(mut window) = windows.single_mut() {
         window.cursor_options.grab_mode = CursorGrabMode::Locked;
         window.cursor_options.visible = false;
     }
 }
 
 fn release_cursor(mut windows: Query<&mut Window>) {
-    if let Ok(mut window) = windows.get_single_mut() {
+    if let Ok(mut window) = windows.single_mut() {
         window.cursor_options.grab_mode = CursorGrabMode::None;
         window.cursor_options.visible = true;
     }
@@ -200,7 +205,7 @@ fn handle_window_focus(
     mut windows: Query<&mut Window>,
 ) {
     for event in focus_events.read() {
-        if let Ok(mut window) = windows.get_single_mut() {
+        if let Ok(mut window) = windows.single_mut() {
             if event.focused {
                 window.cursor_options.grab_mode = CursorGrabMode::Locked;
                 window.cursor_options.visible = false;
@@ -217,11 +222,11 @@ fn player_input(
     mut player_query: Query<(&mut WishDir, &mut PlayerState), With<Player>>,
     camera_query: Query<&PlayerCamera>,
 ) {
-    let Ok((mut wish_dir, mut state)) = player_query.get_single_mut() else {
+    let Ok((mut wish_dir, mut state)) = player_query.single_mut() else {
         return;
     };
 
-    let Ok(camera) = camera_query.get_single() else {
+    let Ok(camera) = camera_query.single() else {
         return;
     };
 
@@ -271,11 +276,11 @@ fn player_look(
         return;
     }
 
-    let Ok((mut cam_transform, mut camera)) = camera_query.get_single_mut() else {
+    let Ok((mut cam_transform, mut camera)) = camera_query.single_mut() else {
         return;
     };
 
-    let Ok(mut player_transform) = player_query.get_single_mut() else {
+    let Ok(mut player_transform) = player_query.single_mut() else {
         return;
     };
 
@@ -457,11 +462,11 @@ fn update_view_sway(
     mut viewmodel_query: Query<&mut Transform, (With<ViewModel>, Without<Player>, Without<PlayerCamera>)>,
     time: Res<Time>,
 ) {
-    let Ok((velocity, player_state)) = player_query.get_single() else {
+    let Ok((velocity, player_state)) = player_query.single() else {
         return;
     };
 
-    let Ok((mut cam_transform, mut sway, camera)) = camera_query.get_single_mut() else {
+    let Ok((mut cam_transform, mut sway, camera)) = camera_query.single_mut() else {
         return;
     };
 

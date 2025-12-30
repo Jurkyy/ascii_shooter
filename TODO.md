@@ -7,6 +7,7 @@
 - [x] Set up app structure with game states (Menu, Playing, Paused)
 - [x] Create test level (floor, walls, pillars)
 - [x] Basic lighting (point lights, ambient)
+- [x] Migrated to Bevy 0.16 (ChildOf hierarchy, single()/single_mut() queries)
 
 ### Phase 2: Quake-Style Movement
 - [x] Player controller with Transform, Velocity, PlayerState

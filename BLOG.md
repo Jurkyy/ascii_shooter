@@ -12,7 +12,7 @@ This blog documents the process of building the foundation - getting that butter
 
 ---
 
-## Part 1: Setting Up Bevy 0.15
+## Part 1: Setting Up Bevy 0.16
 
 Bevy is a data-driven game engine built in Rust using an Entity Component System (ECS) architecture. If you're coming from Unity or Godot, it's a different mental model - instead of inheritance hierarchies, you compose entities from components and write systems that operate on them. It was quite hard getting to grips with this in the beginning, I had never worked with something like it. However, when it clicked, it started to seem like a whole different type of approach that I had never considered before was possible.
 
@@ -26,7 +26,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.15", features = ["dynamic_linking"] }
+bevy = { version = "0.16", features = ["dynamic_linking"] }
 
 # Optimize dependencies in dev for playable framerates
 [profile.dev.package."*"]
@@ -343,13 +343,14 @@ sway.velocity_tilt.y += (target_pitch - sway.velocity_tilt.y) * dt * 5.0;
 Simple cube "arms" that react to all movement effects:
 
 ```rust
-// Spawn as children of camera
+// Spawn as children of camera using ChildOf component (Bevy 0.16+)
 commands.spawn((
     Mesh3d(meshes.add(Cuboid::new(0.05, 0.05, 0.15))),
     MeshMaterial3d(arm_material),
     Transform::from_xyz(0.15, -0.12, -0.25),
     ViewModel,
-)).set_parent(camera);
+    ChildOf(camera),
+));
 
 // In update, apply sway offsets
 let vm_offset_y = sway.landing_offset * 8.0 + sway.bob_amount.y * 2.0;
@@ -410,6 +411,7 @@ The TODO I wrote looks like this currently:
 - [x] Set up app structure with game states (Menu, Playing, Paused)
 - [x] Create test level (floor, walls, pillars)
 - [x] Basic lighting (point lights, ambient)
+- [x] Migrated to Bevy 0.16 (ChildOf hierarchy, single()/single_mut() queries)
 
 ### Phase 2: Quake-Style Movement
 - [x] Player controller with Transform, Velocity, PlayerState
@@ -424,7 +426,7 @@ The TODO I wrote looks like this currently:
 ---
 
 ## Phase 3: ASCII Post-Process Effect
-Some fun with WGSL. 
+Some fun with WGSL.
 
 ## Phase 4: Combat Prototype
 ???

@@ -79,6 +79,6 @@ Current values in `src/player/movement.rs`:
 ## Tech Stack
 
 - **Language**: Rust
-- **Engine**: Bevy 0.15
+- **Engine**: Bevy 0.16
 - **Physics**: Custom Quake-style (no physics crate)
 - **Rendering**: Bevy 3D + custom ASCII post-process (planned)
