@@ -166,6 +166,73 @@ fn get_char_pixel(pattern_id: u32, char_index: u32, local_x: u32, local_y: u32) 
     }
 }
 
+// ============================================================================
+// SIMPLE PROCEDURAL PATTERNS FOR SMALL CELL SIZES
+// These work at any resolution and capture the "essence" of each pattern type
+// ============================================================================
+
+// Pattern 0 (Standard): Dot/line density based on brightness
+fn get_simple_pattern0(local_uv: vec2<f32>, density: f32) -> f32 {
+    // Simple ordered dithering - dots appear based on density
+    let threshold = fract(local_uv.x * 2.0 + local_uv.y * 3.0);
+    return select(0.0, 1.0, density > threshold);
+}
+
+// Pattern 1 (Blocks): Checkerboard with density
+fn get_simple_pattern1(local_uv: vec2<f32>, density: f32) -> f32 {
+    // Checkerboard pattern - classic block look
+    let check_x = floor(local_uv.x * 2.0);
+    let check_y = floor(local_uv.y * 2.0);
+    let checker = (check_x + check_y) % 2.0;
+    // Blend checker with solid based on density
+    if density < 0.3 {
+        return 0.0;
+    } else if density < 0.6 {
+        return checker;
+    } else {
+        return 1.0;
+    }
+}
+
+// Pattern 2 (Slashes): Diagonal stripes
+fn get_simple_pattern2(local_uv: vec2<f32>, density: f32) -> f32 {
+    // Diagonal stripe pattern
+    let diag = fract(local_uv.x + local_uv.y);
+    let stripe_width = 0.3 + density * 0.4; // Wider stripes at higher density
+    return select(0.0, 1.0, diag < stripe_width);
+}
+
+// Pattern 3 (Binary): Vertical lines like "1"s
+fn get_simple_pattern3(local_uv: vec2<f32>, density: f32) -> f32 {
+    // Vertical lines with horizontal segments - looks like "1"s
+    let vert = abs(local_uv.x - 0.5) < 0.15; // Center vertical line
+    let top_hook = local_uv.y < 0.25 && local_uv.x < 0.5 && local_uv.x > 0.2;
+    let bottom_base = local_uv.y > 0.8;
+
+    if density < 0.2 {
+        return 0.0;
+    } else if density < 0.5 {
+        return select(0.0, 1.0, vert);
+    } else if density < 0.8 {
+        return select(0.0, 1.0, vert || top_hook);
+    } else {
+        return select(0.0, 1.0, vert || top_hook || bottom_base);
+    }
+}
+
+// Get simple procedural pattern pixel
+fn get_simple_pattern(pattern_id: u32, local_uv: vec2<f32>, density: f32) -> f32 {
+    if pattern_id == 1u {
+        return get_simple_pattern1(local_uv, density);
+    } else if pattern_id == 2u {
+        return get_simple_pattern2(local_uv, density);
+    } else if pattern_id == 3u {
+        return get_simple_pattern3(local_uv, density);
+    } else {
+        return get_simple_pattern0(local_uv, density);
+    }
+}
+
 // Calculate luminance from RGB
 fn luminance(color: vec3<f32>) -> f32 {
     return dot(color, vec3<f32>(0.299, 0.587, 0.114));
@@ -215,11 +282,23 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let boosted_brightness = pow(brightness, 0.7); // Gamma correction to lift shadows
     let char_index = u32(clamp(boosted_brightness * 10.0, 0.0, 9.0));
 
-    // Get the pixel value from the character bitmap
-    let char_pixel = get_char_pixel(pattern_id, char_index, char_local_x, char_local_y);
+    // Render bitmap characters at Classic (8x14) size for all resolutions
+    // This ensures patterns are equally legible regardless of cell size
+    var char_pixel: f32;
+    if settings.cell_size.x < 8.0 {
+        // Render characters at fixed Classic size, tiled across the screen
+        let reference_size = vec2<f32>(8.0, 14.0);
+        let tiled_pos = fract(pixel_coord / reference_size) * reference_size;
+        let ref_char_x = u32(tiled_pos.x / reference_size.x * 5.0);
+        let ref_char_y = u32(tiled_pos.y / reference_size.y * 7.0);
+        char_pixel = get_char_pixel(pattern_id, char_index, ref_char_x, ref_char_y);
+    } else {
+        // Use cell-sized character bitmaps for Classic and larger
+        char_pixel = get_char_pixel(pattern_id, char_index, char_local_x, char_local_y);
+    }
 
     // Boost brightness for better visibility
-    let boosted_color = avg_color * 1.6;
+    let boosted_color = avg_color * 2.0;
 
     // Output color
     var output_color: vec3<f32>;

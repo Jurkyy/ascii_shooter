@@ -450,10 +450,10 @@ pub struct AsciiSettings {
 impl Default for AsciiSettings {
     fn default() -> Self {
         Self {
-            cell_size: Vec2::new(3.0, 5.0),
+            cell_size: Vec2::new(5.0, 9.0), // HighRes as default
             resolution: Vec2::new(1280.0, 720.0),
             monochrome: 0.0,
-            per_object_mode: 0.0,
+            per_object_mode: 1.0, // Per-object patterns enabled by default
             global_pattern: 0.0,
             _padding: 0.0,
         }
@@ -512,9 +512,9 @@ impl AsciiSettings {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Resource)]
 pub enum AsciiPreset {
     /// Ultra resolution - tiny characters, maximum detail (3x5)
-    #[default]
     Ultra,
     /// High resolution - small characters, more detail (5x9)
+    #[default]
     HighRes,
     /// Classic look - medium characters (8x14)
     Classic,
