@@ -193,6 +193,72 @@ fn get_char_pixel_pattern4(char_index: u32, local_x: u32, local_y: u32, cell_x: 
     return f32((row_bits >> bit_pos) & 1u);
 }
 
+// Pattern 5: Matrix Fall - true falling columns with bright head and fading tail
+fn get_char_pixel_pattern5(char_index: u32, local_x: u32, local_y: u32, cell_x: f32, cell_y: f32, time: f32) -> f32 {
+    // Same character set
+    let char0 = array<u32, 7>(0u, 0u, 0u, 0u, 0u, 0u, 0u);           // empty
+    let char1 = array<u32, 7>(0u, 4u, 4u, 4u, 4u, 0u, 4u);           // !
+    let char2 = array<u32, 7>(14u, 17u, 17u, 17u, 17u, 17u, 14u);    // 0
+    let char3 = array<u32, 7>(4u, 12u, 4u, 4u, 4u, 4u, 14u);         // 1
+    let char4 = array<u32, 7>(14u, 17u, 1u, 14u, 16u, 16u, 31u);     // 2
+    let char5 = array<u32, 7>(31u, 1u, 1u, 14u, 1u, 1u, 31u);        // 3
+    let char6 = array<u32, 7>(17u, 17u, 17u, 31u, 1u, 1u, 1u);       // 4
+    let char7 = array<u32, 7>(31u, 16u, 16u, 30u, 1u, 17u, 14u);     // 5
+    let char8 = array<u32, 7>(14u, 17u, 31u, 17u, 17u, 17u, 14u);    // 8
+    let char9 = array<u32, 7>(31u, 31u, 31u, 31u, 31u, 31u, 31u);    // solid
+
+    // Each column has unique properties based on pseudo-random seed
+    let column_seed = fract(sin(cell_x * 12.9898 + 78.233) * 43758.5453);
+    let column_seed2 = fract(sin(cell_x * 63.7264 + 10.873) * 43758.5453);
+
+    // Column properties
+    let fall_speed = 8.0 + column_seed * 12.0; // Cells per second (8-20)
+    let trail_length = 8.0 + column_seed2 * 16.0; // How many cells the trail spans
+    let start_offset = column_seed * 100.0; // Stagger when each column starts
+
+    // Where is the "head" of this column's rain drop?
+    let head_position = (time * fall_speed + start_offset) % (trail_length + 40.0);
+
+    // Distance from head (negative = ahead of head, positive = behind/in trail)
+    let dist_from_head = head_position - cell_y;
+
+    // Brightness based on position in trail (1.0 at head, fading to 0)
+    var trail_brightness = 0.0;
+    if dist_from_head >= 0.0 && dist_from_head < trail_length {
+        // In the trail - fade out based on distance from head
+        trail_brightness = 1.0 - (dist_from_head / trail_length);
+        trail_brightness = trail_brightness * trail_brightness; // Quadratic falloff for nicer fade
+    }
+
+    // Only show character if we're in the trail AND original brightness allows
+    if trail_brightness < 0.1 || char_index == 0u {
+        return 0.0;
+    }
+
+    // Pick a random character that changes occasionally
+    let char_change_rate = 4.0; // Characters change every ~0.25 seconds
+    let char_time = floor(time * char_change_rate + cell_y * 0.5 + cell_x * 0.3);
+    let char_variation = u32(fract(sin(cell_x * 78.233 + cell_y * 45.164 + char_time * 93.7193) * 43758.5453) * 8.0) + 1u;
+
+    var row_bits: u32 = 0u;
+    if char_variation == 0u { row_bits = char0[local_y]; }
+    else if char_variation == 1u { row_bits = char1[local_y]; }
+    else if char_variation == 2u { row_bits = char2[local_y]; }
+    else if char_variation == 3u { row_bits = char3[local_y]; }
+    else if char_variation == 4u { row_bits = char4[local_y]; }
+    else if char_variation == 5u { row_bits = char5[local_y]; }
+    else if char_variation == 6u { row_bits = char6[local_y]; }
+    else if char_variation == 7u { row_bits = char7[local_y]; }
+    else if char_variation == 8u { row_bits = char8[local_y]; }
+    else { row_bits = char9[local_y]; }
+
+    let bit_pos = 4u - local_x;
+    let pixel = f32((row_bits >> bit_pos) & 1u);
+
+    // Modulate pixel by trail brightness for the fade effect
+    return pixel * trail_brightness;
+}
+
 // Get pixel from character bitmap based on pattern ID
 fn get_char_pixel(pattern_id: u32, char_index: u32, local_x: u32, local_y: u32, cell_x: f32, cell_y: f32, time: f32) -> f32 {
     let clamped_x = min(local_x, 4u);
@@ -206,6 +272,8 @@ fn get_char_pixel(pattern_id: u32, char_index: u32, local_x: u32, local_y: u32, 
         return get_char_pixel_pattern3(char_index, clamped_x, clamped_y);
     } else if pattern_id == 4u {
         return get_char_pixel_pattern4(char_index, clamped_x, clamped_y, cell_x, cell_y, time);
+    } else if pattern_id == 5u {
+        return get_char_pixel_pattern5(char_index, clamped_x, clamped_y, cell_x, cell_y, time);
     } else {
         return get_char_pixel_pattern0(char_index, clamped_x, clamped_y);
     }
@@ -315,10 +383,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 
     if settings.per_object_mode > 0.5 {
         // Per-object mode: sample pattern ID from pattern texture
-        // Pattern ID is encoded in the red channel as value / 5.0 (0-4 → 0.0-0.8)
+        // Pattern ID is encoded in the red channel as value / 6.0 (0-5 → 0.0-0.833)
         let pattern_sample = textureSample(pattern_texture, texture_sampler, cell_center_uv);
-        // Decode: multiply by 5 and round (add 0.5 for rounding)
-        pattern_id = u32(pattern_sample.r * 5.0 + 0.5);
+        // Decode: multiply by 6 and round (add 0.5 for rounding)
+        pattern_id = u32(pattern_sample.r * 6.0 + 0.5);
     }
 
     // Get brightness and map to character index (0-9)

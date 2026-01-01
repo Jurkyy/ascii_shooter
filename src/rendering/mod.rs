@@ -556,8 +556,10 @@ pub enum AsciiPattern {
     Slashes = 2,
     /// Binary/Digital (0s and 1s)
     Binary = 3,
-    /// Matrix Rain - animated falling characters
-    MatrixRain = 4,
+    /// Matrix Cycle - animated cycling characters
+    MatrixCycle = 4,
+    /// Matrix Fall - true falling columns with fading trails
+    MatrixFall = 5,
 }
 
 impl AsciiPattern {
@@ -596,8 +598,12 @@ impl AsciiPatternId {
         Self::new(AsciiPattern::Binary)
     }
 
-    pub fn matrix_rain() -> Self {
-        Self::new(AsciiPattern::MatrixRain)
+    pub fn matrix_cycle() -> Self {
+        Self::new(AsciiPattern::MatrixCycle)
+    }
+
+    pub fn matrix_fall() -> Self {
+        Self::new(AsciiPattern::MatrixFall)
     }
 }
 
@@ -683,14 +689,15 @@ pub fn cycle_global_pattern(
     if keyboard.just_pressed(KeyCode::F4) {
         for mut setting in &mut settings {
             let current = setting.global_pattern as u32;
-            let next = (current + 1) % 5;
+            let next = (current + 1) % 6;
             setting.global_pattern = next as f32;
             let name = match next {
                 0 => "Standard",
                 1 => "Blocks",
                 2 => "Slashes",
                 3 => "Binary",
-                4 => "Matrix Rain",
+                4 => "Matrix Cycle",
+                5 => "Matrix Fall",
                 _ => "Unknown",
             };
             info!("Global Pattern: {} ({})", next, name);
