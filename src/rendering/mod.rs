@@ -441,10 +441,10 @@ pub struct AsciiSettings {
     pub monochrome: f32,
     /// 0.0 = global pattern, 1.0 = per-object patterns
     pub per_object_mode: f32,
-    /// Global pattern ID (0-3) used when per_object_mode is 0
+    /// Global pattern ID (0-4) used when per_object_mode is 0
     pub global_pattern: f32,
-    /// Padding for GPU alignment
-    _padding: f32,
+    /// Animation time in seconds
+    pub time: f32,
 }
 
 impl Default for AsciiSettings {
@@ -455,7 +455,7 @@ impl Default for AsciiSettings {
             monochrome: 0.0,
             per_object_mode: 1.0, // Per-object patterns enabled by default
             global_pattern: 0.0,
-            _padding: 0.0,
+            time: 0.0,
         }
     }
 }
@@ -556,6 +556,8 @@ pub enum AsciiPattern {
     Slashes = 2,
     /// Binary/Digital (0s and 1s)
     Binary = 3,
+    /// Matrix Rain - animated falling characters
+    MatrixRain = 4,
 }
 
 impl AsciiPattern {
@@ -593,6 +595,10 @@ impl AsciiPatternId {
     pub fn binary() -> Self {
         Self::new(AsciiPattern::Binary)
     }
+
+    pub fn matrix_rain() -> Self {
+        Self::new(AsciiPattern::MatrixRain)
+    }
 }
 
 /// System to update resolution in settings based on window size
@@ -607,6 +613,14 @@ pub fn update_ascii_resolution(windows: Query<&Window>, mut settings: Query<&mut
         if setting.resolution != resolution {
             setting.resolution = resolution;
         }
+    }
+}
+
+/// System to update animation time for animated patterns
+pub fn update_ascii_time(time: Res<Time>, mut settings: Query<&mut AsciiSettings>) {
+    let elapsed = time.elapsed_secs();
+    for mut setting in &mut settings {
+        setting.time = elapsed;
     }
 }
 
@@ -669,13 +683,14 @@ pub fn cycle_global_pattern(
     if keyboard.just_pressed(KeyCode::F4) {
         for mut setting in &mut settings {
             let current = setting.global_pattern as u32;
-            let next = (current + 1) % 4;
+            let next = (current + 1) % 5;
             setting.global_pattern = next as f32;
             let name = match next {
                 0 => "Standard",
                 1 => "Blocks",
                 2 => "Slashes",
                 3 => "Binary",
+                4 => "Matrix Rain",
                 _ => "Unknown",
             };
             info!("Global Pattern: {} ({})", next, name);

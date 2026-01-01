@@ -35,6 +35,7 @@ fn main() {
         .add_systems(Update, (
             handle_game_state_input,
             rendering::update_ascii_resolution,
+            rendering::update_ascii_time,
             rendering::cycle_ascii_preset,
             rendering::toggle_ascii_monochrome,
             rendering::toggle_per_object_mode,

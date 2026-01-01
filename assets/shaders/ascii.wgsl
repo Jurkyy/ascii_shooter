@@ -18,8 +18,8 @@ struct AsciiSettings {
     per_object_mode: f32,
     // Global pattern ID (0-3) used when per_object_mode is 0
     global_pattern: f32,
-    // Padding for alignment
-    _padding: f32,
+    // Animation time in seconds
+    time: f32,
 }
 @group(0) @binding(2) var<uniform> settings: AsciiSettings;
 
@@ -150,8 +150,51 @@ fn get_char_pixel_pattern3(char_index: u32, local_x: u32, local_y: u32) -> f32 {
     return f32((row_bits >> bit_pos) & 1u);
 }
 
+// Pattern 4: Matrix Rain - animated falling digital characters
+fn get_char_pixel_pattern4(char_index: u32, local_x: u32, local_y: u32, cell_x: f32, cell_y: f32, time: f32) -> f32 {
+    // Use same character set as Binary
+    let char0 = array<u32, 7>(0u, 0u, 0u, 0u, 0u, 0u, 0u);           // empty
+    let char1 = array<u32, 7>(0u, 4u, 4u, 4u, 4u, 0u, 4u);           // !
+    let char2 = array<u32, 7>(14u, 17u, 17u, 17u, 17u, 17u, 14u);    // 0
+    let char3 = array<u32, 7>(4u, 12u, 4u, 4u, 4u, 4u, 14u);         // 1
+    let char4 = array<u32, 7>(14u, 17u, 1u, 14u, 16u, 16u, 31u);     // 2
+    let char5 = array<u32, 7>(31u, 1u, 1u, 14u, 1u, 1u, 31u);        // 3
+    let char6 = array<u32, 7>(17u, 17u, 17u, 31u, 1u, 1u, 1u);       // 4
+    let char7 = array<u32, 7>(31u, 16u, 16u, 30u, 1u, 17u, 14u);     // 5
+    let char8 = array<u32, 7>(14u, 17u, 31u, 17u, 17u, 17u, 14u);    // 8
+    let char9 = array<u32, 7>(31u, 31u, 31u, 31u, 31u, 31u, 31u);    // solid
+
+    // Create falling rain effect
+    // Each column falls at a different speed based on pseudo-random offset
+    let column_seed = fract(sin(cell_x * 12.9898) * 43758.5453);
+    let fall_speed = 3.0 + column_seed * 4.0; // Varying speeds
+    let fall_offset = column_seed * 50.0; // Stagger start positions
+
+    // Animated character selection based on time and position
+    let time_offset = floor(time * 8.0 + cell_y * fall_speed + fall_offset);
+    let char_variation = u32(fract(sin(cell_x * 78.233 + time_offset * 45.164) * 43758.5453) * 8.0) + 1u;
+
+    // Use animated character for visible cells, empty for dark areas
+    let animated_char = select(0u, char_variation, char_index > 0u);
+
+    var row_bits: u32 = 0u;
+    if animated_char == 0u { row_bits = char0[local_y]; }
+    else if animated_char == 1u { row_bits = char1[local_y]; }
+    else if animated_char == 2u { row_bits = char2[local_y]; }
+    else if animated_char == 3u { row_bits = char3[local_y]; }
+    else if animated_char == 4u { row_bits = char4[local_y]; }
+    else if animated_char == 5u { row_bits = char5[local_y]; }
+    else if animated_char == 6u { row_bits = char6[local_y]; }
+    else if animated_char == 7u { row_bits = char7[local_y]; }
+    else if animated_char == 8u { row_bits = char8[local_y]; }
+    else { row_bits = char9[local_y]; }
+
+    let bit_pos = 4u - local_x;
+    return f32((row_bits >> bit_pos) & 1u);
+}
+
 // Get pixel from character bitmap based on pattern ID
-fn get_char_pixel(pattern_id: u32, char_index: u32, local_x: u32, local_y: u32) -> f32 {
+fn get_char_pixel(pattern_id: u32, char_index: u32, local_x: u32, local_y: u32, cell_x: f32, cell_y: f32, time: f32) -> f32 {
     let clamped_x = min(local_x, 4u);
     let clamped_y = min(local_y, 6u);
 
@@ -161,6 +204,8 @@ fn get_char_pixel(pattern_id: u32, char_index: u32, local_x: u32, local_y: u32) 
         return get_char_pixel_pattern2(char_index, clamped_x, clamped_y);
     } else if pattern_id == 3u {
         return get_char_pixel_pattern3(char_index, clamped_x, clamped_y);
+    } else if pattern_id == 4u {
+        return get_char_pixel_pattern4(char_index, clamped_x, clamped_y, cell_x, cell_y, time);
     } else {
         return get_char_pixel_pattern0(char_index, clamped_x, clamped_y);
     }
@@ -270,10 +315,10 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
 
     if settings.per_object_mode > 0.5 {
         // Per-object mode: sample pattern ID from pattern texture
-        // Pattern ID is encoded in the red channel as value / 4.0 (0-3 → 0.0-0.75)
+        // Pattern ID is encoded in the red channel as value / 5.0 (0-4 → 0.0-0.8)
         let pattern_sample = textureSample(pattern_texture, texture_sampler, cell_center_uv);
-        // Decode: multiply by 4 and round (add 0.5 for rounding)
-        pattern_id = u32(pattern_sample.r * 4.0 + 0.5);
+        // Decode: multiply by 5 and round (add 0.5 for rounding)
+        pattern_id = u32(pattern_sample.r * 5.0 + 0.5);
     }
 
     // Get brightness and map to character index (0-9)
@@ -291,10 +336,11 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
         let tiled_pos = fract(pixel_coord / reference_size) * reference_size;
         let ref_char_x = u32(tiled_pos.x / reference_size.x * 5.0);
         let ref_char_y = u32(tiled_pos.y / reference_size.y * 7.0);
-        char_pixel = get_char_pixel(pattern_id, char_index, ref_char_x, ref_char_y);
+        let ref_cell = floor(pixel_coord / reference_size);
+        char_pixel = get_char_pixel(pattern_id, char_index, ref_char_x, ref_char_y, ref_cell.x, ref_cell.y, settings.time);
     } else {
         // Use cell-sized character bitmaps for Classic and larger
-        char_pixel = get_char_pixel(pattern_id, char_index, char_local_x, char_local_y);
+        char_pixel = get_char_pixel(pattern_id, char_index, char_local_x, char_local_y, cell_coord.x, cell_coord.y, settings.time);
     }
 
     // Boost brightness for better visibility

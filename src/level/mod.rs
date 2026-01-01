@@ -191,6 +191,22 @@ fn spawn_test_level(
         AsciiPatternId::binary(),
     ));
 
+    // Pattern 4: Matrix Rain - dark green/cyan (animated)
+    let matrix_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.1, 0.8, 0.5),
+        emissive: LinearRgba::rgb(0.0, 0.4, 0.2),
+        perceptual_roughness: 0.3,
+        ..default()
+    });
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(showcase_size, showcase_height, showcase_size))),
+        MeshMaterial3d(matrix_material),
+        Transform::from_xyz(showcase_spacing * 2.5, showcase_y, showcase_z),
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        AsciiPatternId::matrix_rain(),
+    ));
+
     // Multiple lights for the larger arena
     let light_positions = [
         Vec3::new(0.0, 15.0, 0.0),
