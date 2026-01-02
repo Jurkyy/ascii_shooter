@@ -1,32 +1,38 @@
 use bevy::prelude::*;
 
-/// Quake movement constants - tune these for feel
+/// CS Surf/Bhop server style movement constants
+/// Inspired by CS:S/CS:GO community bhop and surf servers
 #[derive(Resource)]
 pub struct MovementConfig {
-    pub sv_maxspeed: f32,       // Max ground speed (units/sec)
-    pub sv_accelerate: f32,     // Ground acceleration
-    pub sv_airaccelerate: f32,  // Air acceleration
-    pub sv_friction: f32,       // Ground friction
-    pub sv_gravity: f32,        // Gravity (units/sec^2)
-    pub sv_jumpspeed: f32,      // Jump velocity
-    pub sv_stopspeed: f32,      // Speed below which friction stops you instantly
-    pub player_height: f32,     // Player capsule height
-    pub player_radius: f32,     // Player capsule radius
+    pub sv_maxspeed: f32,           // Max ground speed (units/sec)
+    pub sv_accelerate: f32,         // Ground acceleration
+    pub sv_airaccelerate: f32,      // Air acceleration (high for surf/bhop)
+    pub sv_friction: f32,           // Ground friction
+    pub sv_gravity: f32,            // Gravity (units/sec^2)
+    pub sv_jumpspeed: f32,          // Jump velocity
+    pub sv_stopspeed: f32,          // Speed below which friction stops you instantly
+    pub sv_air_wishspeed_cap: f32,  // Wish speed cap in air (controls strafe tightness)
+    pub sv_air_speed_cap: f32,      // Hard cap on air speed
+    pub player_height: f32,         // Player capsule height
+    pub player_radius: f32,         // Player capsule radius
 }
 
 impl Default for MovementConfig {
     fn default() -> Self {
-        // Quake values scaled down ~40x for meter-scale (1 unit = 1 meter)
+        // CS Surf/Bhop style: smooth air control, speed gain through strafing
+        // Reference: bhop servers use high sv_airaccelerate (100+) and sv_enablebunnyhopping 1
         Self {
-            sv_maxspeed: 8.0,        // ~8 m/s running speed
-            sv_accelerate: 10.0,     // Acceleration feels good as-is
-            sv_airaccelerate: 15.0,  // Air accel for bunny hop (reduced for smoother buildup)
-            sv_friction: 6.0,        // Friction coefficient
-            sv_gravity: 20.0,        // Slightly stronger than real (9.8)
-            sv_jumpspeed: 7.0,       // ~1.2m jump height
-            sv_stopspeed: 2.5,       // Minimum speed for friction calc
-            player_height: 1.8,      // 1.8m tall player
-            player_radius: 0.4,      // 0.4m radius
+            sv_maxspeed: 7.5,           // Base ground speed
+            sv_accelerate: 6.0,         // Moderate ground accel (less twitchy than Quake)
+            sv_airaccelerate: 12.0,     // High air accel for responsive strafing
+            sv_friction: 5.0,           // Higher friction = snappier ground stops
+            sv_gravity: 12.0,           // Lower gravity for more hangtime (surf feel)
+            sv_jumpspeed: 6.2,          // Good jump height for bhop chains
+            sv_stopspeed: 1.8,          // Threshold for instant stop
+            sv_air_wishspeed_cap: 1.5,  // Tighter than Quake = smoother curves
+            sv_air_speed_cap: 25.0,     // Soft cap on max speed
+            player_height: 1.8,
+            player_radius: 0.4,
         }
     }
 }
@@ -72,31 +78,40 @@ pub fn accelerate(
     velocity + wish_dir * accel_speed
 }
 
-/// Quake-style air acceleration - allows exceeding max speed via strafe jumping
+/// CS Surf/Bhop style air acceleration - allows speed gain through strafing
+/// The key mechanic: wish_speed is capped low for tighter turning curves,
+/// but acceleration uses full wish_speed, enabling speed gain when strafing
+/// perpendicular to velocity.
 pub fn air_accelerate(
     velocity: Vec3,
     wish_dir: Vec3,
     wish_speed: f32,
     accel: f32,
+    air_wishspeed_cap: f32,
+    air_speed_cap: f32,
     dt: f32,
 ) -> Vec3 {
-    // Higher cap allows sharper turns without losing speed
-    let wish_speed = wish_speed.min(8.0);
+    // Cap wish_speed for add_speed calculation - lower = smoother, tighter curves
+    // This is what gives surf its smooth, flowing feel vs Quake's twitchiness
+    let capped_wish_speed = wish_speed.min(air_wishspeed_cap);
 
     let current_speed = velocity.dot(wish_dir);
-    let add_speed = wish_speed - current_speed;
+    let add_speed = capped_wish_speed - current_speed;
 
     if add_speed <= 0.0 {
         return velocity;
     }
 
+    // Use full wish_speed for acceleration - this enables speed gain through strafing
+    // When strafing perpendicular to velocity, current_speed ≈ 0, so add_speed > 0
+    // and you gain velocity in the strafe direction
     let accel_speed = (accel * wish_speed * dt).min(add_speed);
     let new_vel = velocity + wish_dir * accel_speed;
 
-    // Cap total horizontal speed at 30 m/s
+    // Soft cap on horizontal speed - allows high speeds but with diminishing returns
     let horiz_speed = Vec2::new(new_vel.x, new_vel.z).length();
-    if horiz_speed > 30.0 {
-        let scale = 30.0 / horiz_speed;
+    if horiz_speed > air_speed_cap {
+        let scale = air_speed_cap / horiz_speed;
         return Vec3::new(new_vel.x * scale, new_vel.y, new_vel.z * scale);
     }
 
@@ -142,12 +157,15 @@ mod tests {
     fn test_movement_config_defaults() {
         let config = MovementConfig::default();
 
-        assert!(approx_eq(config.sv_maxspeed, 8.0));
-        assert!(approx_eq(config.sv_accelerate, 10.0));
-        assert!(approx_eq(config.sv_airaccelerate, 15.0));
-        assert!(approx_eq(config.sv_friction, 6.0));
-        assert!(approx_eq(config.sv_gravity, 20.0));
-        assert!(approx_eq(config.sv_jumpspeed, 7.0));
+        // CS Surf/Bhop style values
+        assert!(approx_eq(config.sv_maxspeed, 7.5));
+        assert!(approx_eq(config.sv_accelerate, 6.0));
+        assert!(approx_eq(config.sv_airaccelerate, 12.0));
+        assert!(approx_eq(config.sv_friction, 5.0));
+        assert!(approx_eq(config.sv_gravity, 12.0));
+        assert!(approx_eq(config.sv_jumpspeed, 6.2));
+        assert!(approx_eq(config.sv_air_wishspeed_cap, 1.5));
+        assert!(approx_eq(config.sv_air_speed_cap, 25.0));
         assert!(approx_eq(config.player_height, 1.8));
         assert!(approx_eq(config.player_radius, 0.4));
     }
@@ -220,11 +238,13 @@ mod tests {
     fn test_air_accelerate_basic() {
         let velocity = Vec3::new(0.0, 0.0, -5.0);
         let wish_dir = Vec3::new(1.0, 0.0, 0.0); // Strafe
-        let wish_speed = 8.0;
-        let accel = 20.0;
+        let wish_speed = 7.5;
+        let accel = 12.0;
+        let air_wishspeed_cap = 1.5;
+        let air_speed_cap = 25.0;
         let dt = 0.016;
 
-        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, dt);
+        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, air_wishspeed_cap, air_speed_cap, dt);
 
         // Should gain speed in strafe direction
         assert!(result.x > 0.0);
@@ -232,28 +252,32 @@ mod tests {
 
     #[test]
     fn test_air_accelerate_speed_cap() {
-        let velocity = Vec3::new(25.0, 0.0, -15.0); // High horizontal speed
+        let velocity = Vec3::new(20.0, 0.0, -15.0); // High horizontal speed
         let wish_dir = Vec3::new(1.0, 0.0, 0.0);
-        let wish_speed = 8.0;
-        let accel = 20.0;
+        let wish_speed = 7.5;
+        let accel = 12.0;
+        let air_wishspeed_cap = 1.5;
+        let air_speed_cap = 25.0;
         let dt = 0.016;
 
-        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, dt);
+        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, air_wishspeed_cap, air_speed_cap, dt);
 
-        // Should cap at 30 m/s horizontal
+        // Should cap at air_speed_cap horizontal
         let horiz_speed = Vec2::new(result.x, result.z).length();
-        assert!(horiz_speed <= 30.0 + EPSILON);
+        assert!(horiz_speed <= air_speed_cap + EPSILON);
     }
 
     #[test]
     fn test_air_accelerate_preserves_vertical() {
         let velocity = Vec3::new(5.0, -10.0, 5.0); // Falling
         let wish_dir = Vec3::new(1.0, 0.0, 0.0);
-        let wish_speed = 8.0;
-        let accel = 20.0;
+        let wish_speed = 7.5;
+        let accel = 12.0;
+        let air_wishspeed_cap = 1.5;
+        let air_speed_cap = 25.0;
         let dt = 0.016;
 
-        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, dt);
+        let result = air_accelerate(velocity, wish_dir, wish_speed, accel, air_wishspeed_cap, air_speed_cap, dt);
 
         // Y velocity should be unchanged
         assert!(approx_eq(result.y, velocity.y));
@@ -339,18 +363,19 @@ mod tests {
 
     #[test]
     fn test_bunny_hop_gains_speed() {
-        // Simulate a bunny hop: forward velocity + strafe input in air
+        // Simulate a bunny hop: strafe perpendicular to velocity direction
+        // Key insight: you gain speed by strafing ~90 degrees from movement direction
+        // while turning your view to change the velocity angle
         let mut velocity = Vec3::new(0.0, 0.0, -8.0);
-        let accel = 20.0;
+        let accel = 10.0; // Realistic accel value
         let dt = 0.016;
-
-        // Strafe right while moving forward
-        let wish_dir = Vec3::new(0.7071, 0.0, -0.7071).normalize(); // 45 degrees
 
         let initial_speed = Vec2::new(velocity.x, velocity.z).length();
 
-        // Apply air acceleration for several frames
-        for _ in 0..10 {
+        // Strafe RIGHT (perpendicular to forward velocity) - this is proper bhop technique
+        // The wish_dir should be nearly perpendicular to current velocity
+        for _ in 0..30 {
+            let wish_dir = Vec3::new(1.0, 0.0, 0.0); // Pure right strafe
             velocity = air_accelerate(velocity, wish_dir, 8.0, accel, dt);
         }
 

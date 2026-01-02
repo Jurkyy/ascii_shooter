@@ -26,8 +26,8 @@ impl Plugin for PlayerPlugin {
                 Update,
                 (
                     handle_window_focus,
-                    player_input,
-                    player_look,
+                    player_look,      // Update camera angles FIRST
+                    player_input,     // Then calculate wish_dir from updated angles
                     ground_check,
                     player_movement,
                     apply_gravity,
@@ -88,7 +88,7 @@ impl Default for ViewSway {
 #[derive(Component)]
 pub struct ViewModel;
 
-const MOUSE_SENSITIVITY: f32 = 0.00075;
+const MOUSE_SENSITIVITY: f32 = 0.0004;
 
 fn spawn_player(
     mut commands: Commands,
@@ -310,13 +310,7 @@ fn ground_check(
         let feet_y = transform.translation.y - config.player_height / 2.0;
 
         // Ground is at y=0, with a small tolerance
-        let was_grounded = state.grounded;
         state.grounded = feet_y <= 0.05 && velocity.0.y <= 0.1;
-
-        // If we just landed and weren't trying to jump, clear wish_jump
-        if state.grounded && !was_grounded && !state.wish_jump {
-            // Landing without jump intent
-        }
     }
 }
 
@@ -358,13 +352,15 @@ fn player_movement(
                 );
             }
         } else {
-            // Air movement: no friction, low acceleration
+            // Air movement: CS surf/bhop style - responsive strafing with speed gain
             if wish_dir.0.length_squared() > 0.0 {
                 horiz_vel = air_accelerate(
                     horiz_vel,
                     wish_dir.0,
                     config.sv_maxspeed,
                     config.sv_airaccelerate,
+                    config.sv_air_wishspeed_cap,
+                    config.sv_air_speed_cap,
                     dt,
                 );
             }

@@ -87,17 +87,8 @@ ascii_shooter/
 
 ## Movement Tuning
 
-Current values in `src/player/movement.rs`:
-
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| sv_maxspeed | 8.0 | Ground speed cap (m/s) |
-| sv_accelerate | 10.0 | Ground acceleration |
-| sv_airaccelerate | 15.0 | Air acceleration |
-| sv_friction | 6.0 | Ground friction |
-| sv_gravity | 20.0 | Gravity (m/s²) |
-| sv_jumpspeed | 7.0 | Jump velocity (m/s) |
-| Max bhop speed | 30.0 | Hard cap on horizontal speed |
+Current values in `src/player/movement.rs` - I tried maintaining them here but it became a bit descyned...
+Movement is not based on Quake3 anymore like it was originally, but it is a nice hybrid between CS:GO Surfing/BHopping servers and Quake3.
 
 ## ASCII Presets
 

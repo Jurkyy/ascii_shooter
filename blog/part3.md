@@ -227,6 +227,62 @@ The emissive material properties ensure patterns remain visible even in darker a
 
 ---
 
+## Interlude: Movement like a Surf Server
+
+While the visuals were coming together, the movement felt too restrictive. I initially had a Quake3 based movement system. But for this project, I wanted something more fluid - closer to community Bhop and Surf servers in CounterStrike.
+
+The goal: allow the player to gain speed by strafing in the air and maintain that momentum smoothly.
+
+### The Physics of Air Strafe
+
+The "magic" of Source-style movement lies in how acceleration is calculated in the air. We don't just add velocity; we check how much "room" is left to accelerate in the direction the player is looking.
+
+In this update, I decoupled the speed cap from the acceleration amount:
+
+```rust
+pub fn air_accelerate(
+    velocity: Vec3,
+    wish_dir: Vec3,
+    wish_speed: f32,
+    accel: f32,
+    air_wishspeed_cap: f32,
+    air_speed_cap: f32,
+    dt: f32,
+) -> Vec3 {
+    // 1. Cap wish_speed for the 'room' calculation
+    // Lower cap = smoother, tighter curves (classic Surf feel)
+    let capped_wish_speed = wish_speed.min(air_wishspeed_cap);
+
+    // 2. How much speed can we still add in this direction?
+    let current_speed = velocity.dot(wish_dir);
+    let add_speed = capped_wish_speed - current_speed;
+
+    if add_speed <= 0.0 { return velocity; }
+
+    // 3. Accelerate using the FULL wish_speed
+    // This allows gaining velocity when strafing perpendicular to movement
+    let accel_speed = (accel * wish_speed * dt).min(add_speed);
+    let new_vel = velocity + wish_dir * accel_speed;
+
+    // 4. Soft cap on horizontal speed
+    let horiz_speed = Vec2::new(new_vel.x, new_vel.z).length();
+    if horiz_speed > air_speed_cap {
+        let scale = air_speed_cap / horiz_speed;
+        return Vec3::new(new_vel.x * scale, new_vel.y, new_vel.z * scale);
+    }
+    
+    new_vel
+}
+```
+
+I did some other tweaks as well, mostly to the "settings" of my movement related variables:
+- *Higher `sv_airaccelerate`*: Jumped from `0.5` to `12.0`. This makes the player responsive in the air.
+- *The "Wishspeed" Cap*: By capping the "headroom" check to a low value (`1.5`), but using the full speed for the actual math, you can gain speed by strafing sideways.
+- *Removed Landing Penalties*: In tactical CS, landing slows you down to prevent bunny hopping. I stripped out `just_landed` and `jump_released` checks. If you hold space, you keep your momentum.
+- *Gravity & Hangtime*: Lowered `sv_gravity` from `16.0` to `12.0` to give the movement a more "floaty" surf feel.
+
+---
+
 ## Performance Notes
 
 Animated patterns add per-pixel calculations every frame, but performance remains solid:
@@ -235,6 +291,7 @@ Animated patterns add per-pixel calculations every frame, but performance remain
 - No texture lookups beyond what we already had
 - Time uniform updates once per frame (negligible CPU cost)
 - Trail calculations are simple arithmetic
+- The movement system uses simple vector dot products, keeping the CPU free to handle the ASCII transformation logic.
 
 On my machine, there's no measurable frame rate difference between static and animated patterns.
 
@@ -251,6 +308,8 @@ On my machine, there's no measurable frame rate difference between static and an
 4. **Modulo creates loops.** `(time * speed + offset) % cycle_length` creates infinitely repeating animations.
 
 5. **Multiple seeds prevent correlation.** Using different seed values for speed vs. trail length prevents all-fast-short or all-slow-long columns.
+
+6. **Movement matters.** If the movement doesn't feel right, it won't be fun to play. Tweaking this as we go will be key to the UX.
 
 ---
 

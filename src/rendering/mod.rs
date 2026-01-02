@@ -716,9 +716,9 @@ mod tests {
     #[test]
     fn test_ascii_settings_default() {
         let settings = AsciiSettings::default();
-        assert_eq!(settings.cell_size, Vec2::new(3.0, 5.0));
+        assert_eq!(settings.cell_size, Vec2::new(5.0, 9.0)); // HighRes default
         assert_eq!(settings.monochrome, 0.0);
-        assert_eq!(settings.per_object_mode, 0.0);
+        assert_eq!(settings.per_object_mode, 1.0); // Per-object enabled by default
         assert_eq!(settings.global_pattern, 0.0);
     }
 
