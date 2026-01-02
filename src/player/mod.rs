@@ -7,6 +7,7 @@ use bevy::window::{CursorGrabMode, WindowFocused};
 use crate::GameState;
 use crate::level::BoxCollider;
 use crate::rendering::AsciiSettings;
+use crate::combat::{DamageFlash, Health, Weapon, AmmoHud};
 
 pub mod movement;
 pub mod input;
@@ -18,7 +19,7 @@ pub struct PlayerPlugin;
 impl Plugin for PlayerPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MovementConfig>()
-            .add_systems(Startup, (spawn_player, spawn_hud))
+            .add_systems(Startup, (spawn_player, spawn_player_hud))
             .add_systems(OnEnter(GameState::Playing), grab_cursor)
             .add_systems(OnEnter(GameState::Paused), release_cursor)
             .add_systems(OnEnter(GameState::Menu), release_cursor)
@@ -35,6 +36,9 @@ impl Plugin for PlayerPlugin {
                     apply_velocity,
                     update_view_sway,
                     update_velocity_hud,
+                    update_health_hud,
+                    update_ammo_hud,
+                    check_player_death,
                 )
                     .chain()
                     .run_if(in_state(GameState::Playing)),
@@ -97,7 +101,7 @@ fn spawn_player(
 ) {
     let config = MovementConfig::default();
 
-    // Spawn player entity
+    // Spawn player entity with combat components
     let player = commands
         .spawn((
             Player,
@@ -106,6 +110,9 @@ fn spawn_player(
             Velocity::default(),
             PlayerState::default(),
             WishDir::default(),
+            Health::new(100.0),
+            Weapon::default(),
+            DamageFlash::default(),
         ))
         .id();
 
@@ -156,7 +163,12 @@ fn spawn_player(
 #[derive(Component)]
 pub struct VelocityHud;
 
-fn spawn_hud(mut commands: Commands) {
+#[derive(Component)]
+pub struct HealthHud;
+
+/// Spawn all player HUD elements in one place
+fn spawn_player_hud(mut commands: Commands) {
+    // Speed display (top-left)
     commands.spawn((
         Text::new("Speed: 0.0"),
         TextFont {
@@ -171,6 +183,40 @@ fn spawn_hud(mut commands: Commands) {
             ..default()
         },
         VelocityHud,
+    ));
+
+    // Health display (bottom-left)
+    commands.spawn((
+        Text::new("HP: 100/100"),
+        TextFont {
+            font_size: 24.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.3, 1.0, 0.3)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Px(10.0),
+            bottom: Val::Px(10.0),
+            ..default()
+        },
+        HealthHud,
+    ));
+
+    // Ammo display (bottom-right)
+    commands.spawn((
+        Text::new("AMMO: 200/200"),
+        TextFont {
+            font_size: 24.0,
+            ..default()
+        },
+        TextColor(Color::srgb(1.0, 0.8, 0.2)),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(10.0),
+            bottom: Val::Px(10.0),
+            ..default()
+        },
+        AmmoHud,
     ));
 }
 
@@ -563,5 +609,62 @@ fn update_view_sway(
             0.0,
             sway.velocity_tilt.x * 0.5,
         );
+    }
+}
+
+fn update_health_hud(
+    player_query: Query<&Health, With<Player>>,
+    mut hud_query: Query<(&mut Text, &mut TextColor), With<HealthHud>>,
+) {
+    let Ok(health) = player_query.single() else {
+        return;
+    };
+
+    let Ok((mut text, mut color)) = hud_query.single_mut() else {
+        return;
+    };
+
+    **text = format!("HP: {:.0}/{:.0}", health.current, health.max);
+
+    // Change color based on health percentage
+    let health_pct = health.fraction();
+    if health_pct > 0.6 {
+        color.0 = Color::srgb(0.3, 1.0, 0.3); // Green
+    } else if health_pct > 0.3 {
+        color.0 = Color::srgb(1.0, 1.0, 0.3); // Yellow
+    } else {
+        color.0 = Color::srgb(1.0, 0.3, 0.3); // Red
+    }
+}
+
+fn update_ammo_hud(
+    player_query: Query<&Weapon, With<Player>>,
+    mut hud_query: Query<&mut Text, With<AmmoHud>>,
+) {
+    let Ok(weapon) = player_query.single() else {
+        return;
+    };
+
+    let Ok(mut text) = hud_query.single_mut() else {
+        return;
+    };
+
+    **text = format!("AMMO: {}/{}", weapon.ammo, weapon.max_ammo);
+}
+
+// === Player Death ===
+
+fn check_player_death(
+    player_query: Query<&Health, With<Player>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    let Ok(health) = player_query.single() else {
+        return;
+    };
+
+    if health.is_dead() {
+        // For now, just go back to menu on death
+        // Phase 5 will add proper GameOver state
+        next_state.set(GameState::Menu);
     }
 }

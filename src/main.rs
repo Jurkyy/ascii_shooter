@@ -6,6 +6,9 @@ mod rendering;
 mod combat;
 mod enemies;
 
+use combat::CombatPlugin;
+use enemies::EnemyPlugin;
+
 /// Game states
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
 pub enum GameState {
@@ -30,6 +33,8 @@ fn main() {
             player::PlayerPlugin,
             level::LevelPlugin,
             rendering::AsciiRenderPlugin,
+            CombatPlugin,
+            EnemyPlugin,
         ))
         .init_resource::<rendering::AsciiPreset>()
         .add_systems(Update, (
