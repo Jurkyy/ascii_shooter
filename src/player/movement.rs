@@ -44,6 +44,8 @@ pub struct Velocity(pub Vec3);
 pub struct PlayerState {
     pub grounded: bool,
     pub wish_jump: bool,
+    /// Current ground height (y position of the floor surface the player is on or above)
+    pub ground_height: f32,
 }
 
 impl Default for PlayerState {
@@ -51,6 +53,7 @@ impl Default for PlayerState {
         Self {
             grounded: false,
             wish_jump: false,
+            ground_height: 0.0,
         }
     }
 }

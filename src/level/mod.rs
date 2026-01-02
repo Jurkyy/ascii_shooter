@@ -23,6 +23,10 @@ pub struct BoxCollider {
 #[derive(Component)]
 pub struct WallCollider;
 
+/// Marker for the main ground floor (excluded from platform collision)
+#[derive(Component)]
+pub struct GroundFloor;
+
 pub const ARENA_SIZE: f32 = 100.0;
 
 fn spawn_test_level(
@@ -32,6 +36,7 @@ fn spawn_test_level(
 ) {
     // Floor - big arena for testing bunny hop (Standard ASCII pattern)
     // Has a thin BoxCollider for projectile collision detection
+    // GroundFloor marker excludes it from player platform collision (uses y=0 check instead)
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(250.0, 250.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -41,7 +46,8 @@ fn spawn_test_level(
         })),
         Transform::from_xyz(0.0, 0.0, 0.0),
         LevelGeometry,
-//        BoxCollider { half_extents: Vec3::new(125.0, 0.5, 125.0) }, // Thin floor collider
+        BoxCollider { half_extents: Vec3::new(125.0, 0.5, 125.0) }, // Thin floor collider
+        GroundFloor, // Excluded from player floor collision
         AsciiPatternId::standard(),
     ));
 
@@ -62,6 +68,7 @@ fn spawn_test_level(
         Transform::from_xyz(0.0, wall_height / 2.0, -ARENA_SIZE),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::new(ARENA_SIZE, wall_height / 2.0, wall_thickness / 2.0) },
+        WallCollider,
         AsciiPatternId::blocks(),
     ));
 
@@ -72,6 +79,7 @@ fn spawn_test_level(
         Transform::from_xyz(0.0, wall_height / 2.0, ARENA_SIZE),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::new(ARENA_SIZE, wall_height / 2.0, wall_thickness / 2.0) },
+        WallCollider,
         AsciiPatternId::blocks(),
     ));
 
@@ -82,6 +90,7 @@ fn spawn_test_level(
         Transform::from_xyz(ARENA_SIZE, wall_height / 2.0, 0.0),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::new(wall_thickness / 2.0, wall_height / 2.0, ARENA_SIZE) },
+        WallCollider,
         AsciiPatternId::blocks(),
     ));
 
@@ -92,6 +101,7 @@ fn spawn_test_level(
         Transform::from_xyz(-ARENA_SIZE, wall_height / 2.0, 0.0),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::new(wall_thickness / 2.0, wall_height / 2.0, ARENA_SIZE) },
+        WallCollider,
         AsciiPatternId::blocks(),
     ));
 
@@ -122,6 +132,7 @@ fn spawn_test_level(
             Transform::from_translation(pos),
             LevelGeometry,
             BoxCollider { half_extents: Vec3::new(1.0, half_height, 1.0) },
+            WallCollider,
             AsciiPatternId::slashes(),
         ));
     }
@@ -147,6 +158,7 @@ fn spawn_test_level(
         Transform::from_xyz(-showcase_spacing * 1.5, showcase_y, showcase_z),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        WallCollider,
         AsciiPatternId::standard(),
     ));
 
@@ -163,6 +175,7 @@ fn spawn_test_level(
         Transform::from_xyz(-showcase_spacing * 0.5, showcase_y, showcase_z),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        WallCollider,
         AsciiPatternId::blocks(),
     ));
 
@@ -179,6 +192,7 @@ fn spawn_test_level(
         Transform::from_xyz(showcase_spacing * 0.5, showcase_y, showcase_z),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        WallCollider,
         AsciiPatternId::slashes(),
     ));
 
@@ -195,6 +209,7 @@ fn spawn_test_level(
         Transform::from_xyz(showcase_spacing * 1.5, showcase_y, showcase_z),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        WallCollider,
         AsciiPatternId::binary(),
     ));
 
@@ -211,6 +226,7 @@ fn spawn_test_level(
         Transform::from_xyz(showcase_spacing * 2.5, showcase_y, showcase_z),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        WallCollider,
         AsciiPatternId::matrix_cycle(),
     ));
 
@@ -227,7 +243,70 @@ fn spawn_test_level(
         Transform::from_xyz(showcase_spacing * 3.5, showcase_y, showcase_z),
         LevelGeometry,
         BoxCollider { half_extents: Vec3::splat(showcase_size / 2.0) },
+        WallCollider,
         AsciiPatternId::matrix_fall(),
+    ));
+
+    // Raised platform to test floor collision at different elevations
+    // Has BoxCollider (for projectile collision) but NO WallCollider (doesn't block horizontal movement)
+    let platform_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.4, 0.35, 0.5),
+        emissive: LinearRgba::rgb(0.1, 0.05, 0.15),
+        perceptual_roughness: 0.6,
+        ..default()
+    });
+
+    // Main raised platform - can walk up ramp or jump onto
+    let platform_width = 20.0;
+    let platform_depth = 20.0;
+    let platform_height = 0.5;
+    let platform_y = 3.0; // Elevated 3 units
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(platform_width, platform_height, platform_depth))),
+        MeshMaterial3d(platform_material.clone()),
+        Transform::from_xyz(30.0, platform_y, 30.0),
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::new(platform_width / 2.0, platform_height / 2.0, platform_depth / 2.0) },
+        // NO WallCollider - this is a floor, not a wall
+        AsciiPatternId::binary(),
+    ));
+
+    // Stairs leading up to the platform (replacing ramp since AABB can't handle rotation)
+    let stair_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.45, 0.4, 0.55),
+        perceptual_roughness: 0.7,
+        ..default()
+    });
+
+    // Create steps leading up to the platform (which is at y=3.0, top at 3.25)
+    // Each step is max 0.6 units higher than the previous (within 0.7 step-up range)
+    let step_width = 8.0;
+    let step_depth = 2.5;
+    let step_thickness = 0.3;
+    // Step tops: 0.4, 0.95, 1.5, 2.05, 2.6, 3.15 (each ~0.55 higher)
+    let step_heights = [0.25, 0.8, 1.35, 1.9, 2.45, 3.0];
+    let step_z_positions = [8.0, 11.0, 14.0, 17.0, 20.0, 23.0];
+
+    for (&height, &z_pos) in step_heights.iter().zip(step_z_positions.iter()) {
+        commands.spawn((
+            Mesh3d(meshes.add(Cuboid::new(step_width, step_thickness, step_depth))),
+            MeshMaterial3d(stair_material.clone()),
+            Transform::from_xyz(30.0, height, z_pos),
+            LevelGeometry,
+            BoxCollider { half_extents: Vec3::new(step_width / 2.0, step_thickness / 2.0, step_depth / 2.0) },
+            // NO WallCollider - stairs are floor surfaces
+            AsciiPatternId::slashes(),
+        ));
+    }
+
+    // Second smaller platform at different height
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(10.0, 0.5, 10.0))),
+        MeshMaterial3d(platform_material),
+        Transform::from_xyz(-30.0, 5.0, 30.0),
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::new(5.0, 0.25, 5.0) },
+        AsciiPatternId::matrix_cycle(),
     ));
 
     // Multiple lights for the larger arena

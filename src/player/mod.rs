@@ -5,7 +5,7 @@ use bevy::input::mouse::MouseMotion;
 use bevy::window::{CursorGrabMode, WindowFocused};
 
 use crate::GameState;
-use crate::level::BoxCollider;
+use crate::level::{BoxCollider, GroundFloor, WallCollider};
 use crate::rendering::AsciiSettings;
 use crate::combat::{DamageFlash, Health, Weapon, WeaponInventory, AmmoHud, WeaponHud};
 
@@ -393,14 +393,46 @@ fn player_look(
 
 fn ground_check(
     mut query: Query<(&Transform, &mut PlayerState, &Velocity), With<Player>>,
+    floor_query: Query<(&Transform, &BoxCollider), (Without<WallCollider>, Without<GroundFloor>, Without<Player>)>,
     config: Res<MovementConfig>,
 ) {
     for (transform, mut state, velocity) in &mut query {
-        // Simple ground check: are we at or below ground level?
-        let feet_y = transform.translation.y - config.player_height / 2.0;
+        let player_pos = transform.translation;
+        let feet_y = player_pos.y - config.player_height / 2.0;
+        let player_radius = config.player_radius;
 
-        // Ground is at y=0, with a small tolerance
-        state.grounded = feet_y <= 0.05 && velocity.0.y <= 0.1;
+        // Start with base ground level
+        let mut ground_height = 0.0;
+
+        // Step-up height - can walk onto surfaces this much higher than current feet
+        let max_step_up = 0.6;
+
+        // Check all floor surfaces (platforms, stairs, etc.)
+        for (floor_transform, floor_collider) in &floor_query {
+            let floor_pos = floor_transform.translation;
+            let half = floor_collider.half_extents;
+            let floor_top = floor_pos.y + half.y;
+
+            // Check if player is within XZ bounds of this floor
+            if (player_pos.x - floor_pos.x).abs() < half.x + player_radius
+                && (player_pos.z - floor_pos.z).abs() < half.z + player_radius
+            {
+                // Can step up onto this surface, or land on it from above
+                let can_step_up = floor_top <= feet_y + max_step_up;
+                let is_below_player = floor_top < player_pos.y;
+
+                if (can_step_up || is_below_player) && floor_top > ground_height {
+                    ground_height = floor_top;
+                }
+            }
+        }
+
+        // Update ground height in state
+        state.ground_height = ground_height;
+
+        // Check if grounded: feet at or below ground level, not moving up significantly
+        let grounded_tolerance = 0.1;
+        state.grounded = feet_y <= ground_height + grounded_tolerance && velocity.0.y <= 0.1;
     }
 }
 
@@ -476,24 +508,24 @@ fn apply_gravity(
 }
 
 fn player_collision(
-    mut player_query: Query<(&mut Transform, &mut Velocity), With<Player>>,
-    collider_query: Query<(&Transform, &BoxCollider), Without<Player>>,
+    mut player_query: Query<(&mut Transform, &mut Velocity, &PlayerState), With<Player>>,
+    wall_query: Query<(&Transform, &BoxCollider), (With<WallCollider>, Without<Player>)>,
     config: Res<MovementConfig>,
 ) {
-    for (mut player_transform, mut velocity) in &mut player_query {
+    for (mut player_transform, mut velocity, state) in &mut player_query {
         let player_radius = config.player_radius;
-
-        // Floor collision
         let feet_y = player_transform.translation.y - config.player_height / 2.0;
-        if feet_y < 0.0 {
-            player_transform.translation.y = config.player_height / 2.0;
+
+        // Apply floor collision using ground_height from ground_check
+        if feet_y < state.ground_height {
+            player_transform.translation.y = state.ground_height + config.player_height / 2.0;
             if velocity.0.y < 0.0 {
                 velocity.0.y = 0.0;
             }
         }
 
-        // Collide with level geometry
-        for (collider_transform, collider) in &collider_query {
+        // Collide with walls/obstacles (only WallCollider entities)
+        for (collider_transform, collider) in &wall_query {
             let collider_pos = collider_transform.translation;
             let half = collider.half_extents;
 

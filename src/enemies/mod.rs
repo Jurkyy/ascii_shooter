@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use crate::combat::{DamageEvent, Dead, DeathEvent, Health, Shootable, Weapon};
-use crate::level::{BoxCollider, ARENA_SIZE};
+use crate::level::{BoxCollider, WallCollider, ARENA_SIZE};
 use crate::player::Player;
 use crate::rendering::AsciiPatternId;
 use crate::GameState;
@@ -543,7 +543,7 @@ fn enemy_movement(
 /// Handle enemy collision with walls and obstacles
 fn enemy_collision(
     mut enemy_query: Query<&mut Transform, With<Enemy>>,
-    collider_query: Query<(&Transform, &BoxCollider), Without<Enemy>>,
+    collider_query: Query<(&Transform, &BoxCollider), (With<WallCollider>, Without<Enemy>)>,
 ) {
     let enemy_radius = 0.6;
 
