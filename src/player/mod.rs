@@ -38,6 +38,7 @@ impl Plugin for PlayerPlugin {
                     update_velocity_hud,
                     update_health_hud,
                     update_ammo_hud,
+                    update_crosshair,
                     check_player_death,
                 )
                     .chain()
@@ -166,6 +167,9 @@ pub struct VelocityHud;
 #[derive(Component)]
 pub struct HealthHud;
 
+#[derive(Component)]
+pub struct Crosshair;
+
 /// Spawn all player HUD elements in one place
 fn spawn_player_hud(mut commands: Commands) {
     // Speed display (top-left)
@@ -217,6 +221,28 @@ fn spawn_player_hud(mut commands: Commands) {
             ..default()
         },
         AmmoHud,
+    ));
+
+    // Crosshair (center) - cycling ASCII character
+    commands.spawn((
+        Text::new("+"),
+        TextFont {
+            font_size: 6.0,
+            ..default()
+        },
+        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+        Node {
+            position_type: PositionType::Absolute,
+            left: Val::Percent(50.0),
+            top: Val::Percent(50.0),
+            margin: UiRect {
+                left: Val::Px(-1.5),  // Center the character
+                top: Val::Px(-3.0),
+                ..default()
+            },
+            ..default()
+        },
+        Crosshair,
     ));
 }
 
@@ -650,6 +676,22 @@ fn update_ammo_hud(
     };
 
     **text = format!("AMMO: {}/{}", weapon.ammo, weapon.max_ammo);
+}
+
+const CROSSHAIR_CHARS: &[char] = &['+', 'x', '*', 'o', '.', ':', '#', '@', '%', '&'];
+
+fn update_crosshair(
+    mut crosshair_query: Query<&mut Text, With<Crosshair>>,
+    time: Res<Time>,
+) {
+    let Ok(mut text) = crosshair_query.single_mut() else {
+        return;
+    };
+
+    // Cycle through characters every ~0.15 seconds
+    let index = (time.elapsed_secs() / 0.15) as usize % CROSSHAIR_CHARS.len();
+    let ch = CROSSHAIR_CHARS[index];
+    **text = ch.to_string();
 }
 
 // === Player Death ===

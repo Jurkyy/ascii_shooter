@@ -439,7 +439,7 @@ fn update_hit_reactions(
                 0.0,
                 jitter_z * intensity * 0.03,
             );
-            hit_reaction.rotation_offset = jitter_rot * intensity * 0.02;
+            hit_reaction.rotation_offset = jitter_rot * intensity * 0.2;
 
             // Apply offset to transform
             transform.translation += hit_reaction.offset;
