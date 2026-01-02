@@ -5,7 +5,7 @@ use bevy::input::mouse::MouseMotion;
 use bevy::window::{CursorGrabMode, WindowFocused};
 
 use crate::GameState;
-use crate::level::{BoxCollider, GroundFloor, WallCollider};
+use crate::level::{BoxCollider, GroundFloor, Slope, WallCollider};
 use crate::rendering::AsciiSettings;
 use crate::combat::{DamageFlash, Health, Weapon, WeaponInventory, AmmoHud, WeaponHud};
 
@@ -245,17 +245,17 @@ fn spawn_player_hud(mut commands: Commands) {
     commands.spawn((
         Text::new("+"),
         TextFont {
-            font_size: 6.0,
+            font_size: 12.0,
             ..default()
         },
-        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.7)),
+        TextColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
         Node {
             position_type: PositionType::Absolute,
             left: Val::Percent(50.0),
             top: Val::Percent(50.0),
             margin: UiRect {
-                left: Val::Px(-1.5),  // Center the character
-                top: Val::Px(-3.0),
+                left: Val::Px(-3.0),  // Center the character
+                top: Val::Px(-6.0),
                 ..default()
             },
             ..default()
@@ -393,7 +393,7 @@ fn player_look(
 
 fn ground_check(
     mut query: Query<(&Transform, &mut PlayerState, &Velocity), With<Player>>,
-    floor_query: Query<(&Transform, &BoxCollider), (Without<WallCollider>, Without<GroundFloor>, Without<Player>)>,
+    floor_query: Query<(&Transform, &BoxCollider, Option<&Slope>), (Without<WallCollider>, Without<GroundFloor>, Without<Player>)>,
     config: Res<MovementConfig>,
 ) {
     for (transform, mut state, velocity) in &mut query {
@@ -407,16 +407,22 @@ fn ground_check(
         // Step-up height - can walk onto surfaces this much higher than current feet
         let max_step_up = 0.6;
 
-        // Check all floor surfaces (platforms, stairs, etc.)
-        for (floor_transform, floor_collider) in &floor_query {
+        // Check all floor surfaces (platforms, stairs, slopes, etc.)
+        for (floor_transform, floor_collider, slope) in &floor_query {
             let floor_pos = floor_transform.translation;
             let half = floor_collider.half_extents;
-            let floor_top = floor_pos.y + half.y;
 
             // Check if player is within XZ bounds of this floor
             if (player_pos.x - floor_pos.x).abs() < half.x + player_radius
                 && (player_pos.z - floor_pos.z).abs() < half.z + player_radius
             {
+                // Calculate floor height - slopes vary based on position
+                let floor_top = if let Some(slope) = slope {
+                    slope.height_at(floor_pos, half, player_pos)
+                } else {
+                    floor_pos.y + half.y
+                };
+
                 // Can step up onto this surface, or land on it from above
                 let can_step_up = floor_top <= feet_y + max_step_up;
                 let is_below_player = floor_top < player_pos.y;
@@ -510,6 +516,7 @@ fn apply_gravity(
 fn player_collision(
     mut player_query: Query<(&mut Transform, &mut Velocity, &PlayerState), With<Player>>,
     wall_query: Query<(&Transform, &BoxCollider), (With<WallCollider>, Without<Player>)>,
+    slope_query: Query<(&Transform, &BoxCollider, &Slope), Without<Player>>,
     config: Res<MovementConfig>,
 ) {
     for (mut player_transform, mut velocity, state) in &mut player_query {
@@ -521,6 +528,79 @@ fn player_collision(
             player_transform.translation.y = state.ground_height + config.player_height / 2.0;
             if velocity.0.y < 0.0 {
                 velocity.0.y = 0.0;
+            }
+        }
+
+        // Collide with slopes as solid volumes
+        for (slope_transform, collider, slope) in &slope_query {
+            let slope_pos = slope_transform.translation;
+            let half = collider.half_extents;
+            let player_pos = player_transform.translation;
+
+            // Check if within XZ bounds (with player radius)
+            let in_x = (player_pos.x - slope_pos.x).abs() < half.x + player_radius;
+            let in_z = (player_pos.z - slope_pos.z).abs() < half.z + player_radius;
+
+            if in_x && in_z {
+                // Calculate slope surface height at player position
+                let slope_height = slope.height_at(slope_pos, half, player_pos);
+
+                // Player is inside slope volume if:
+                // - feet are below the slope surface
+                // - but body extends into the slope (not just walking on top)
+                let player_bottom = feet_y;
+                let slope_bottom = slope_pos.y - half.y; // Base of slope at y=0 relative to transform
+
+                // If player's feet are below slope surface but above slope bottom,
+                // they're inside the slope - push them out
+                if player_bottom < slope_height && player_bottom > slope_bottom - 0.5 {
+                    // Check if coming from above (landing) vs from side (collision)
+                    let height_diff = slope_height - player_bottom;
+
+                    if height_diff < 0.6 {
+                        // Small height difference - treat as step-up (handled by ground_check)
+                        continue;
+                    }
+
+                    // Push out to nearest edge
+                    let diff_x = player_pos.x - slope_pos.x;
+                    let diff_z = player_pos.z - slope_pos.z;
+                    let combined_x = half.x + player_radius;
+                    let combined_z = half.z + player_radius;
+
+                    let pen_x = combined_x - diff_x.abs();
+                    let pen_z = combined_z - diff_z.abs();
+
+                    // Also consider pushing up (if close to surface)
+                    let pen_y = slope_height - player_bottom;
+
+                    // Find smallest penetration to resolve
+                    if pen_y < pen_x && pen_y < pen_z && pen_y < 2.0 {
+                        // Push up onto slope
+                        player_transform.translation.y = slope_height + config.player_height / 2.0;
+                        if velocity.0.y < 0.0 {
+                            velocity.0.y = 0.0;
+                        }
+                    } else if pen_x < pen_z {
+                        // Push out on X
+                        if diff_x > 0.0 {
+                            player_transform.translation.x = slope_pos.x + combined_x;
+                            velocity.0.x = velocity.0.x.max(0.0);
+                        } else {
+                            player_transform.translation.x = slope_pos.x - combined_x;
+                            velocity.0.x = velocity.0.x.min(0.0);
+                        }
+                    } else {
+                        // Push out on Z
+                        if diff_z > 0.0 {
+                            player_transform.translation.z = slope_pos.z + combined_z;
+                            velocity.0.z = velocity.0.z.max(0.0);
+                        } else {
+                            player_transform.translation.z = slope_pos.z - combined_z;
+                            velocity.0.z = velocity.0.z.min(0.0);
+                        }
+                    }
+                }
             }
         }
 

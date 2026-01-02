@@ -1,5 +1,130 @@
 use bevy::prelude::*;
+use bevy::render::mesh::{Indices, PrimitiveTopology};
 use crate::rendering::AsciiPatternId;
+
+/// Helper to add a quad to mesh data
+fn add_quad(
+    verts: &mut Vec<[f32; 3]>,
+    norms: &mut Vec<[f32; 3]>,
+    uvs: &mut Vec<[f32; 2]>,
+    indices: &mut Vec<u32>,
+    p0: [f32; 3], p1: [f32; 3], p2: [f32; 3], p3: [f32; 3],
+    normal: [f32; 3],
+) {
+    let base = verts.len() as u32;
+    verts.extend([p0, p1, p2, p3]);
+    norms.extend([normal, normal, normal, normal]);
+    uvs.extend([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+    indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+}
+
+/// Creates a wedge/ramp mesh for slopes in Z direction
+/// - `width`: size in X direction
+/// - `length`: size in Z direction (the direction the slope runs)
+/// - `height_back`: height at the back (-Z end)
+/// - `height_front`: height at the front (+Z end)
+fn create_ramp_mesh(width: f32, length: f32, height_back: f32, height_front: f32) -> Mesh {
+    let hw = width / 2.0;
+    let hl = length / 2.0;
+
+    let slope_rise = height_front - height_back;
+    let slope_normal = Vec3::new(0.0, length, -slope_rise).normalize();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    let mut verts: Vec<[f32; 3]> = Vec::new();
+    let mut norms: Vec<[f32; 3]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    // Bottom face
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, 0.0, -hl], [hw, 0.0, -hl], [hw, 0.0, hl], [-hw, 0.0, hl],
+        [0.0, -1.0, 0.0]);
+
+    // Top face (sloped)
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, height_back, -hl], [-hw, height_front, hl], [hw, height_front, hl], [hw, height_back, -hl],
+        slope_normal.to_array());
+
+    // Back face
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, 0.0, -hl], [-hw, height_back, -hl], [hw, height_back, -hl], [hw, 0.0, -hl],
+        [0.0, 0.0, -1.0]);
+
+    // Front face
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [hw, 0.0, hl], [hw, height_front, hl], [-hw, height_front, hl], [-hw, 0.0, hl],
+        [0.0, 0.0, 1.0]);
+
+    // Left face
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, 0.0, hl], [-hw, height_front, hl], [-hw, height_back, -hl], [-hw, 0.0, -hl],
+        [-1.0, 0.0, 0.0]);
+
+    // Right face
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [hw, 0.0, -hl], [hw, height_back, -hl], [hw, height_front, hl], [hw, 0.0, hl],
+        [1.0, 0.0, 0.0]);
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, norms);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+
+    mesh
+}
+
+/// Creates a ramp mesh for X-direction slopes
+fn create_ramp_mesh_x(width: f32, length: f32, height_left: f32, height_right: f32) -> Mesh {
+    let hw = width / 2.0;
+    let hl = length / 2.0;
+
+    let slope_rise = height_right - height_left;
+    let slope_normal = Vec3::new(-slope_rise, width, 0.0).normalize();
+
+    let mut mesh = Mesh::new(PrimitiveTopology::TriangleList, default());
+    let mut verts: Vec<[f32; 3]> = Vec::new();
+    let mut norms: Vec<[f32; 3]> = Vec::new();
+    let mut uvs: Vec<[f32; 2]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    // Bottom
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, 0.0, -hl], [hw, 0.0, -hl], [hw, 0.0, hl], [-hw, 0.0, hl],
+        [0.0, -1.0, 0.0]);
+
+    // Top (sloped in X)
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, height_left, -hl], [-hw, height_left, hl], [hw, height_right, hl], [hw, height_right, -hl],
+        slope_normal.to_array());
+
+    // Front (+Z)
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, 0.0, hl], [-hw, height_left, hl], [hw, height_right, hl], [hw, 0.0, hl],
+        [0.0, 0.0, 1.0]);
+
+    // Back (-Z)
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [hw, 0.0, -hl], [hw, height_right, -hl], [-hw, height_left, -hl], [-hw, 0.0, -hl],
+        [0.0, 0.0, -1.0]);
+
+    // Left (-X)
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [-hw, 0.0, -hl], [-hw, height_left, -hl], [-hw, height_left, hl], [-hw, 0.0, hl],
+        [-1.0, 0.0, 0.0]);
+
+    // Right (+X)
+    add_quad(&mut verts, &mut norms, &mut uvs, &mut indices,
+        [hw, 0.0, hl], [hw, height_right, hl], [hw, height_right, -hl], [hw, 0.0, -hl],
+        [1.0, 0.0, 0.0]);
+
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, verts);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, norms);
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32(indices));
+
+    mesh
+}
 
 pub struct LevelPlugin;
 
@@ -26,6 +151,65 @@ pub struct WallCollider;
 /// Marker for the main ground floor (excluded from platform collision)
 #[derive(Component)]
 pub struct GroundFloor;
+
+/// Slope component for angled floor surfaces
+/// The slope rises in the direction specified, starting from base_height
+#[derive(Component)]
+pub struct Slope {
+    /// Direction the slope rises (normalized, in XZ plane)
+    pub direction: Vec2,
+    /// Height rise per unit distance in the slope direction
+    pub rise_per_unit: f32,
+}
+
+impl Slope {
+    /// Create a slope that rises in the +Z direction
+    pub fn rising_z(rise_per_unit: f32) -> Self {
+        Self {
+            direction: Vec2::new(0.0, 1.0),
+            rise_per_unit,
+        }
+    }
+
+    /// Create a slope that rises in the -Z direction
+    pub fn falling_z(rise_per_unit: f32) -> Self {
+        Self {
+            direction: Vec2::new(0.0, -1.0),
+            rise_per_unit,
+        }
+    }
+
+    /// Create a slope that rises in the +X direction
+    pub fn rising_x(rise_per_unit: f32) -> Self {
+        Self {
+            direction: Vec2::new(1.0, 0.0),
+            rise_per_unit,
+        }
+    }
+
+    /// Create a slope that rises in the -X direction
+    pub fn falling_x(rise_per_unit: f32) -> Self {
+        Self {
+            direction: Vec2::new(-1.0, 0.0),
+            rise_per_unit,
+        }
+    }
+
+    /// Calculate the ground height at a given world position
+    pub fn height_at(&self, slope_center: Vec3, half_extents: Vec3, world_pos: Vec3) -> f32 {
+        // Project position onto slope direction relative to slope center
+        let relative_x = world_pos.x - slope_center.x;
+        let relative_z = world_pos.z - slope_center.z;
+        let relative_pos = Vec2::new(relative_x, relative_z);
+
+        // Distance along the slope direction from center
+        let distance_along = relative_pos.dot(self.direction);
+
+        // Base height is at the center, adjusted by distance along slope
+        let base_top = slope_center.y + half_extents.y;
+        base_top + distance_along * self.rise_per_unit
+    }
+}
 
 pub const ARENA_SIZE: f32 = 100.0;
 
@@ -126,6 +310,9 @@ fn spawn_test_level(
 
     for pos in pillar_positions {
         let half_height = pos.y;
+        let pillar_top = pos.y + half_height;
+
+        // Pillar body (blocks horizontal movement)
         commands.spawn((
             Mesh3d(meshes.add(Cuboid::new(2.0, half_height * 2.0, 2.0))),
             MeshMaterial3d(pillar_material.clone()),
@@ -134,6 +321,13 @@ fn spawn_test_level(
             BoxCollider { half_extents: Vec3::new(1.0, half_height, 1.0) },
             WallCollider,
             AsciiPatternId::slashes(),
+        ));
+
+        // Pillar top (floor surface for standing on)
+        commands.spawn((
+            Transform::from_xyz(pos.x, pillar_top, pos.z),
+            BoxCollider { half_extents: Vec3::new(1.0, 0.1, 1.0) },
+            // No WallCollider, no mesh - just collision for floor detection
         ));
     }
 
@@ -298,6 +492,74 @@ fn spawn_test_level(
             AsciiPatternId::slashes(),
         ));
     }
+
+    // === SLOPE RAMPS ===
+    let slope_material = materials.add(StandardMaterial {
+        base_color: Color::srgb(0.5, 0.7, 0.5),
+        emissive: LinearRgba::rgb(0.05, 0.15, 0.05),
+        perceptual_roughness: 0.5,
+        ..default()
+    });
+
+    // Ramp going up in +Z direction (next to stairs, leads to same platform)
+    // Ramp is 15 units long, rises from 0 to 3 (slope = 0.2 rise per unit)
+    let ramp1_length = 15.0;
+    let ramp1_width = 6.0;
+    let ramp1_height_back = 0.0;
+    let ramp1_height_front = 3.0;
+    let ramp1_center_height = (ramp1_height_back + ramp1_height_front) / 2.0;
+    commands.spawn((
+        Mesh3d(meshes.add(create_ramp_mesh(ramp1_width, ramp1_length, ramp1_height_back, ramp1_height_front))),
+        MeshMaterial3d(slope_material.clone()),
+        Transform::from_xyz(40.0, 0.0, 15.5), // Base at ground level
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::new(ramp1_width / 2.0, ramp1_center_height, ramp1_length / 2.0) },
+        Slope::rising_z(0.2), // Rises 0.2 units per Z unit
+        AsciiPatternId::standard(),
+    ));
+
+    // Ramp going up in +X direction (different area)
+    // 12 units wide, rises from 0 to 3 (0.25 per unit)
+    let ramp2_width = 12.0;
+    let ramp2_depth = 6.0;
+    let ramp2_height_left = 0.0;
+    let ramp2_height_right = 3.0;
+    let ramp2_center_height = (ramp2_height_left + ramp2_height_right) / 2.0;
+    commands.spawn((
+        Mesh3d(meshes.add(create_ramp_mesh_x(ramp2_width, ramp2_depth, ramp2_height_left, ramp2_height_right))),
+        MeshMaterial3d(slope_material.clone()),
+        Transform::from_xyz(-50.0, 0.0, -30.0),
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::new(ramp2_width / 2.0, ramp2_center_height, ramp2_depth / 2.0) },
+        Slope::rising_x(0.25), // Rises 0.25 units per X unit
+        AsciiPatternId::standard(),
+    ));
+
+    // Platform at top of X-direction ramp
+    commands.spawn((
+        Mesh3d(meshes.add(Cuboid::new(8.0, 0.5, 8.0))),
+        MeshMaterial3d(platform_material.clone()),
+        Transform::from_xyz(-42.0, 3.0, -30.0), // Adjusted to match ramp top
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::new(4.0, 0.25, 4.0) },
+        AsciiPatternId::binary(),
+    ));
+
+    // Steeper ramp (for variety) - rises 4 units over 10
+    let ramp3_width = 5.0;
+    let ramp3_length = 10.0;
+    let ramp3_height_back = 0.0;
+    let ramp3_height_front = 4.0;
+    let ramp3_center_height = (ramp3_height_back + ramp3_height_front) / 2.0;
+    commands.spawn((
+        Mesh3d(meshes.add(create_ramp_mesh(ramp3_width, ramp3_length, ramp3_height_back, ramp3_height_front))),
+        MeshMaterial3d(slope_material),
+        Transform::from_xyz(-60.0, 0.0, 20.0),
+        LevelGeometry,
+        BoxCollider { half_extents: Vec3::new(ramp3_width / 2.0, ramp3_center_height, ramp3_length / 2.0) },
+        Slope::rising_z(0.4), // Steeper: 0.4 rise per unit
+        AsciiPatternId::slashes(),
+    ));
 
     // Second smaller platform at different height
     commands.spawn((

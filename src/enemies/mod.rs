@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use crate::combat::{DamageEvent, Dead, DeathEvent, Health, Shootable, Weapon};
-use crate::level::{BoxCollider, WallCollider, ARENA_SIZE};
+use crate::level::{BoxCollider, GroundFloor, Slope, WallCollider, ARENA_SIZE};
 use crate::player::Player;
 use crate::rendering::AsciiPatternId;
 use crate::GameState;
@@ -534,27 +534,104 @@ fn enemy_movement(
             }
             _ => {}
         }
-
-        // Keep enemy at ground level
-        transform.translation.y = 1.0;
+        // Ground height is now set by enemy_collision based on floor surfaces
     }
 }
 
 /// Handle enemy collision with walls and obstacles
 fn enemy_collision(
     mut enemy_query: Query<&mut Transform, With<Enemy>>,
-    collider_query: Query<(&Transform, &BoxCollider), (With<WallCollider>, Without<Enemy>)>,
+    wall_query: Query<(&Transform, &BoxCollider), (With<WallCollider>, Without<Enemy>)>,
+    floor_query: Query<(&Transform, &BoxCollider, Option<&Slope>), (Without<WallCollider>, Without<GroundFloor>, Without<Enemy>)>,
+    slope_query: Query<(&Transform, &BoxCollider, &Slope), Without<Enemy>>,
 ) {
     let enemy_radius = 0.6;
+    let enemy_height = 2.0; // Approximate enemy height
 
     for mut enemy_transform in &mut enemy_query {
         let enemy_pos = enemy_transform.translation;
+        let enemy_feet = enemy_pos.y - enemy_height / 2.0;
 
-        for (collider_transform, collider) in &collider_query {
+        // Calculate ground height at enemy position (floors + slopes)
+        let mut ground_height = 0.0;
+        let max_step_up = 0.6;
+
+        for (floor_transform, floor_collider, slope) in &floor_query {
+            let floor_pos = floor_transform.translation;
+            let half = floor_collider.half_extents;
+
+            // Check if enemy is within XZ bounds
+            if (enemy_pos.x - floor_pos.x).abs() < half.x + enemy_radius
+                && (enemy_pos.z - floor_pos.z).abs() < half.z + enemy_radius
+            {
+                let floor_top = if let Some(slope) = slope {
+                    slope.height_at(floor_pos, half, enemy_pos)
+                } else {
+                    floor_pos.y + half.y
+                };
+
+                let can_step_up = floor_top <= enemy_feet + max_step_up;
+                let is_below = floor_top < enemy_pos.y;
+
+                if (can_step_up || is_below) && floor_top > ground_height {
+                    ground_height = floor_top;
+                }
+            }
+        }
+
+        // Apply ground height - enemy stands on top of floors
+        enemy_transform.translation.y = ground_height + enemy_height / 2.0;
+
+        // Collide with slopes as solid volumes
+        for (slope_transform, collider, slope) in &slope_query {
+            let slope_pos = slope_transform.translation;
+            let half = collider.half_extents;
+
+            let in_x = (enemy_pos.x - slope_pos.x).abs() < half.x + enemy_radius;
+            let in_z = (enemy_pos.z - slope_pos.z).abs() < half.z + enemy_radius;
+
+            if in_x && in_z {
+                let slope_height = slope.height_at(slope_pos, half, enemy_pos);
+                let slope_bottom = slope_pos.y - half.y;
+
+                if enemy_feet < slope_height && enemy_feet > slope_bottom - 0.5 {
+                    let height_diff = slope_height - enemy_feet;
+
+                    if height_diff < 0.6 {
+                        continue; // Step-up handled above
+                    }
+
+                    // Push out to nearest edge
+                    let diff_x = enemy_pos.x - slope_pos.x;
+                    let diff_z = enemy_pos.z - slope_pos.z;
+                    let combined_x = half.x + enemy_radius;
+                    let combined_z = half.z + enemy_radius;
+
+                    let pen_x = combined_x - diff_x.abs();
+                    let pen_z = combined_z - diff_z.abs();
+
+                    if pen_x < pen_z {
+                        if diff_x > 0.0 {
+                            enemy_transform.translation.x = slope_pos.x + combined_x;
+                        } else {
+                            enemy_transform.translation.x = slope_pos.x - combined_x;
+                        }
+                    } else {
+                        if diff_z > 0.0 {
+                            enemy_transform.translation.z = slope_pos.z + combined_z;
+                        } else {
+                            enemy_transform.translation.z = slope_pos.z - combined_z;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collide with walls
+        for (collider_transform, collider) in &wall_query {
             let collider_pos = collider_transform.translation;
             let half = collider.half_extents;
 
-            // Check XZ collision
             let combined_x = half.x + enemy_radius;
             let combined_z = half.z + enemy_radius;
 
@@ -562,7 +639,6 @@ fn enemy_collision(
             let diff_z = enemy_pos.z - collider_pos.z;
 
             if diff_x.abs() < combined_x && diff_z.abs() < combined_z {
-                // Collision detected - push out
                 let pen_x = combined_x - diff_x.abs();
                 let pen_z = combined_z - diff_z.abs();
 
