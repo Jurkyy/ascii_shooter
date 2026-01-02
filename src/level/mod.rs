@@ -18,6 +18,11 @@ pub struct BoxCollider {
     pub half_extents: Vec3,
 }
 
+/// Marker for wall colliders that block player/enemy movement
+/// (Floors only block projectiles, not movement)
+#[derive(Component)]
+pub struct WallCollider;
+
 pub const ARENA_SIZE: f32 = 100.0;
 
 fn spawn_test_level(
@@ -26,6 +31,7 @@ fn spawn_test_level(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     // Floor - big arena for testing bunny hop (Standard ASCII pattern)
+    // Has a thin BoxCollider for projectile collision detection
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(250.0, 250.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
@@ -35,6 +41,7 @@ fn spawn_test_level(
         })),
         Transform::from_xyz(0.0, 0.0, 0.0),
         LevelGeometry,
+//        BoxCollider { half_extents: Vec3::new(125.0, 0.5, 125.0) }, // Thin floor collider
         AsciiPatternId::standard(),
     ));
 

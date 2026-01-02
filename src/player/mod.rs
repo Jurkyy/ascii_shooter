@@ -7,7 +7,7 @@ use bevy::window::{CursorGrabMode, WindowFocused};
 use crate::GameState;
 use crate::level::BoxCollider;
 use crate::rendering::AsciiSettings;
-use crate::combat::{DamageFlash, Health, Weapon, AmmoHud};
+use crate::combat::{DamageFlash, Health, Weapon, WeaponInventory, AmmoHud, WeaponHud};
 
 pub mod movement;
 pub mod input;
@@ -37,6 +37,7 @@ impl Plugin for PlayerPlugin {
                     update_view_sway,
                     update_velocity_hud,
                     update_health_hud,
+                    update_weapon_hud,
                     update_ammo_hud,
                     update_crosshair,
                     check_player_death,
@@ -106,13 +107,13 @@ fn spawn_player(
     let player = commands
         .spawn((
             Player,
-            Transform::from_xyz(0.0, config.player_height / 2.0 + 0.1, 10.0),
+            Transform::from_xyz(0.0, config.player_height / 2.0 + 1.0, 10.0),
             Visibility::default(),
             Velocity::default(),
             PlayerState::default(),
             WishDir::default(),
             Health::new(100.0),
-            Weapon::default(),
+            WeaponInventory::default(),
             DamageFlash::default(),
         ))
         .id();
@@ -204,6 +205,23 @@ fn spawn_player_hud(mut commands: Commands) {
             ..default()
         },
         HealthHud,
+    ));
+
+    // Weapon name display (bottom-right, above ammo)
+    commands.spawn((
+        Text::new("[1] MACHINEGUN"),
+        TextFont {
+            font_size: 20.0,
+            ..default()
+        },
+        TextColor(Color::srgb(0.8, 0.8, 1.0)),
+        Node {
+            position_type: PositionType::Absolute,
+            right: Val::Px(10.0),
+            bottom: Val::Px(35.0),
+            ..default()
+        },
+        WeaponHud,
     ));
 
     // Ammo display (bottom-right)
@@ -663,11 +681,11 @@ fn update_health_hud(
     }
 }
 
-fn update_ammo_hud(
-    player_query: Query<&Weapon, With<Player>>,
-    mut hud_query: Query<&mut Text, With<AmmoHud>>,
+fn update_weapon_hud(
+    player_query: Query<&WeaponInventory, With<Player>>,
+    mut hud_query: Query<&mut Text, With<WeaponHud>>,
 ) {
-    let Ok(weapon) = player_query.single() else {
+    let Ok(inventory) = player_query.single() else {
         return;
     };
 
@@ -675,6 +693,24 @@ fn update_ammo_hud(
         return;
     };
 
+    let weapon = inventory.current();
+    let slot = inventory.current_index + 1;
+    **text = format!("[{}] {}", slot, weapon.weapon_type.name());
+}
+
+fn update_ammo_hud(
+    player_query: Query<&WeaponInventory, With<Player>>,
+    mut hud_query: Query<&mut Text, With<AmmoHud>>,
+) {
+    let Ok(inventory) = player_query.single() else {
+        return;
+    };
+
+    let Ok(mut text) = hud_query.single_mut() else {
+        return;
+    };
+
+    let weapon = inventory.current();
     **text = format!("AMMO: {}/{}", weapon.ammo, weapon.max_ammo);
 }
 

@@ -24,6 +24,7 @@ impl Plugin for EnemyPlugin {
                     enemy_melee_attack,
                     enemy_ranged_attack,
                     update_enemy_projectiles,
+                    update_enemy_explosions,
                     trigger_hit_reactions,
                     update_hit_reactions,
                     handle_enemy_death,
@@ -147,6 +148,17 @@ pub struct EnemyProjectile {
     pub speed: f32,
     pub direction: Vec3,
     pub lifetime: f32,
+    pub explosion_radius: f32,
+}
+
+/// Enemy explosion effect
+#[derive(Component)]
+pub struct EnemyExplosion {
+    pub radius: f32,
+    pub max_radius: f32,
+    pub damage: f32,
+    pub lifetime: f32,
+    pub has_damaged: bool,
 }
 
 /// Spawn initial enemies around the arena
@@ -665,6 +677,7 @@ fn enemy_ranged_attack(
                         speed: 20.0,
                         direction,
                         lifetime: 5.0,
+                        explosion_radius: 3.0,
                     },
                 ));
 
@@ -674,11 +687,119 @@ fn enemy_ranged_attack(
     }
 }
 
-/// Update enemy projectiles - move them and check for player collision
+/// Update enemy projectiles - move them and check for collisions
 fn update_enemy_projectiles(
     mut commands: Commands,
-    mut projectile_query: Query<(Entity, &mut Transform, &mut EnemyProjectile), Without<Player>>,
-    player_query: Query<(Entity, &Transform), With<Player>>,
+    mut projectile_query: Query<(Entity, &mut Transform, &EnemyProjectile), Without<Player>>,
+    player_query: Query<&Transform, With<Player>>,
+    collider_query: Query<(&Transform, &BoxCollider), (Without<Player>, Without<EnemyProjectile>)>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
+) {
+    let dt = time.delta_secs();
+
+    let Ok(player_transform) = player_query.single() else {
+        return;
+    };
+
+    let player_pos = player_transform.translation;
+
+    for (entity, mut transform, projectile) in &mut projectile_query {
+        // Move projectile
+        transform.translation += projectile.direction * projectile.speed * dt;
+
+        let proj_pos = transform.translation;
+        let mut should_explode = false;
+
+        // Check collision with player
+        let dist_to_player = (proj_pos - player_pos).length();
+        if dist_to_player < 1.5 {
+            should_explode = true;
+        }
+
+        // Check collision with walls/floors (all BoxColliders)
+        for (collider_transform, collider) in &collider_query {
+            let collider_pos = collider_transform.translation;
+            let half = collider.half_extents;
+
+            let diff = proj_pos - collider_pos;
+            if diff.x.abs() < half.x + 0.2 && diff.y.abs() < half.y + 0.2 && diff.z.abs() < half.z + 0.2 {
+                should_explode = true;
+                break;
+            }
+        }
+
+        // Check lifetime
+        if projectile.lifetime - dt <= 0.0 {
+            should_explode = true;
+        }
+
+        if should_explode {
+            // Spawn explosion
+            spawn_enemy_explosion(
+                &mut commands,
+                &mut meshes,
+                &mut materials,
+                proj_pos,
+                projectile.damage,
+                projectile.explosion_radius,
+            );
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Spawn enemy explosion effect
+fn spawn_enemy_explosion(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<StandardMaterial>>,
+    position: Vec3,
+    damage: f32,
+    radius: f32,
+) {
+    let explosion_material = materials.add(StandardMaterial {
+        base_color: Color::srgba(0.8, 0.2, 1.0, 0.7),
+        emissive: LinearRgba::rgb(3.0, 0.5, 4.0),
+        unlit: true,
+        alpha_mode: AlphaMode::Blend,
+        ..default()
+    });
+
+    // Explosion sphere
+    commands.spawn((
+        Mesh3d(meshes.add(Sphere::new(0.3))),
+        MeshMaterial3d(explosion_material),
+        Transform::from_translation(position),
+        EnemyExplosion {
+            radius: 0.3,
+            max_radius: radius,
+            damage,
+            lifetime: 0.25,
+            has_damaged: false,
+        },
+    ));
+
+    // Explosion light
+    commands.spawn((
+        PointLight {
+            intensity: 100000.0,
+            color: Color::srgb(0.8, 0.3, 1.0),
+            range: radius * 2.0,
+            shadows_enabled: false,
+            ..default()
+        },
+        Transform::from_translation(position),
+        crate::combat::MuzzleFlash { lifetime: 0.15, max_lifetime: 0.15 },
+    ));
+}
+
+/// Update enemy explosions - expand and deal damage to player
+fn update_enemy_explosions(
+    mut commands: Commands,
+    mut explosion_query: Query<(Entity, &mut Transform, &mut EnemyExplosion)>,
+    player_query: Query<(Entity, &Transform), (With<Player>, Without<EnemyExplosion>)>,
     mut damage_events: EventWriter<DamageEvent>,
     time: Res<Time>,
 ) {
@@ -690,25 +811,32 @@ fn update_enemy_projectiles(
 
     let player_pos = player_transform.translation;
 
-    for (entity, mut transform, mut projectile) in &mut projectile_query {
-        // Move projectile
-        transform.translation += projectile.direction * projectile.speed * dt;
+    for (entity, mut transform, mut explosion) in &mut explosion_query {
+        // Expand explosion
+        let expand_rate = explosion.max_radius / 0.12;
+        explosion.radius = (explosion.radius + expand_rate * dt).min(explosion.max_radius);
+        transform.scale = Vec3::splat(explosion.radius * 2.0);
 
-        // Update lifetime
-        projectile.lifetime -= dt;
-        if projectile.lifetime <= 0.0 {
-            commands.entity(entity).despawn();
-            continue;
+        // Deal damage to player once when near max size
+        if !explosion.has_damaged && explosion.radius > explosion.max_radius * 0.5 {
+            explosion.has_damaged = true;
+
+            let explosion_pos = transform.translation;
+            let dist = (player_pos - explosion_pos).length();
+            if dist < explosion.max_radius {
+                // Damage falls off with distance
+                let damage_mult = 1.0 - (dist / explosion.max_radius);
+                damage_events.write(DamageEvent {
+                    target: player_entity,
+                    amount: explosion.damage * damage_mult,
+                    source: None,
+                });
+            }
         }
 
-        // Check collision with player (simple sphere check)
-        let dist_to_player = (transform.translation - player_pos).length();
-        if dist_to_player < 1.0 {
-            damage_events.write(DamageEvent {
-                target: player_entity,
-                amount: projectile.damage,
-                source: None,
-            });
+        // Fade out
+        explosion.lifetime -= dt;
+        if explosion.lifetime <= 0.0 {
             commands.entity(entity).despawn();
         }
     }

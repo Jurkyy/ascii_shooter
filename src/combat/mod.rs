@@ -22,7 +22,11 @@ impl Plugin for CombatPlugin {
                 Update,
                 (
                     update_weapon_cooldowns,
+                    handle_weapon_switch,
                     handle_shooting,
+                    update_player_projectiles,
+                    update_explosions,
+                    update_sword_swings,
                     process_damage_events,
                     trigger_damage_flash,
                     update_damage_flash,
