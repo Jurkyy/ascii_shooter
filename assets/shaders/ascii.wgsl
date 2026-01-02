@@ -395,12 +395,17 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     let boosted_brightness = pow(brightness, 0.7); // Gamma correction to lift shadows
     let char_index = u32(clamp(boosted_brightness * 10.0, 0.0, 9.0));
 
-    // Render bitmap characters at Classic (8x14) size for all resolutions
-    // This ensures patterns are equally legible regardless of cell size
+    // Render bitmap characters with scaled reference size
+    // Smaller cells get proportionally smaller characters for that high-res feel
     var char_pixel: f32;
     if settings.cell_size.x < 8.0 {
-        // Render characters at fixed Classic size, tiled across the screen
-        let reference_size = vec2<f32>(8.0, 14.0);
+        // Scale reference size based on cell size
+        // Ultra (3x5) -> ~5x9, HighRes (5x9) -> ~6x11, approaching Classic (8x14)
+        let min_ref = vec2<f32>(5.0, 9.0);   // Minimum readable size
+        let max_ref = vec2<f32>(8.0, 14.0);  // Classic size
+        let t = (settings.cell_size.x - 3.0) / 5.0; // 0 at Ultra, 1 at Classic
+        let reference_size = mix(min_ref, max_ref, clamp(t, 0.0, 1.0));
+
         let tiled_pos = fract(pixel_coord / reference_size) * reference_size;
         let ref_char_x = u32(tiled_pos.x / reference_size.x * 5.0);
         let ref_char_y = u32(tiled_pos.y / reference_size.y * 7.0);

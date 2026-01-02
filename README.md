@@ -4,7 +4,9 @@ A first-person shooter with Quake-style movement rendered with a post-process AS
 
 ## Current Status
 
-**Phase 3 Complete** - ASCII post-processing shader working with multiple presets and runtime controls.
+**Phase 3 Complete** - ASCII post-processing with animated patterns, per-object pattern support, and resolution-scaled characters.
+
+![Early demo](assets/images/matrix.png)
 
 ## Features
 
@@ -23,9 +25,16 @@ A first-person shooter with Quake-style movement rendered with a post-process AS
 ### ASCII Rendering
 - Real-time post-process ASCII shader
 - 4 resolution presets (Ultra 3x5, High-Res 5x9, Classic 8x14, Chunky 12x20)
+- **6 character pattern sets:**
+  - Standard (` .:-=+*#%@` density ramp)
+  - Blocks (checkerboards, box-drawing)
+  - Slashes (diagonal lines, X patterns)
+  - Binary (numbers 0-9)
+  - Matrix Cycle (animated cycling characters)
+  - Matrix Fall (true falling rain with fading trails)
+- Per-object pattern assignment via render layers
+- Scaled character rendering (smaller chars at higher resolutions)
 - Monochrome green terminal mode
-- 4 character pattern sets (Standard, Blocks, Slashes, Binary)
-- Per-object pattern infrastructure (for future expansion)
 - Brightness-boosted output for visibility
 
 ## Controls
@@ -38,6 +47,7 @@ A first-person shooter with Quake-style movement rendered with a post-process AS
 | F1 | Cycle ASCII presets |
 | F2 | Toggle monochrome mode |
 | F3 | Toggle per-object patterns |
+| F4 | Cycle global pattern |
 | Escape | Pause |
 | Enter/Space | Start game (from menu) |
 
@@ -62,15 +72,17 @@ ascii_shooter/
 │   ├── level/
 │   │   └── mod.rs           # Level geometry, colliders
 │   ├── rendering/
-│   │   └── mod.rs           # ASCII post-process pipeline
+│   │   ├── mod.rs           # ASCII post-process pipeline
+│   │   └── pattern_material.rs  # Per-object pattern material
 │   ├── combat/
 │   │   └── mod.rs           # (placeholder)
 │   └── enemies/
 │       └── mod.rs           # (placeholder)
 └── assets/
-    └── shaders/
-        ├── ascii.wgsl       # Main ASCII post-process shader
-        └── pattern_prepass.wgsl  # Per-object pattern shader
+    ├── shaders/
+    │   ├── ascii.wgsl           # Main ASCII post-process shader
+    │   └── pattern_material.wgsl # Per-object pattern ID shader
+    └── images/                   # Screenshots
 ```
 
 ## Movement Tuning
@@ -89,12 +101,23 @@ Current values in `src/player/movement.rs`:
 
 ## ASCII Presets
 
-| Preset | Cell Size | Description |
-|--------|-----------|-------------|
-| Ultra | 3x5 | Maximum detail, tiny characters |
-| High-Res | 5x9 | Good balance of detail and readability |
-| Classic | 8x14 | Traditional terminal look |
-| Chunky | 12x20 | Retro, large characters |
+| Preset | Cell Size | Character Size | Description |
+|--------|-----------|----------------|-------------|
+| Ultra | 3x5 | ~5x9 | Maximum detail, dense small characters |
+| High-Res | 5x9 | ~6x11 | Good balance of detail and readability |
+| Classic | 8x14 | 8x14 | Traditional terminal look |
+| Chunky | 12x20 | 12x20 | Retro, large characters |
+
+## Pattern Sets
+
+| ID | Name | Description |
+|----|------|-------------|
+| 0 | Standard | Classic ASCII density ramp |
+| 1 | Blocks | Checkerboards and box-drawing |
+| 2 | Slashes | Diagonal lines and X patterns |
+| 3 | Binary | Numbers 0-9 digital look |
+| 4 | Matrix Cycle | Animated cycling characters |
+| 5 | Matrix Fall | Falling rain with fading trails |
 
 ## Tech Stack
 
@@ -102,3 +125,9 @@ Current values in `src/player/movement.rs`:
 - **Engine**: Bevy 0.16
 - **Physics**: Custom Quake-style (no physics crate)
 - **Rendering**: Bevy 3D + custom WGSL ASCII post-process shader
+
+## Development Blog
+
+- [Part 1: Quake Movement](blog/part1.md)
+- [Part 2: The ASCII Shader](blog/part2.md)
+- [Part 3: Animated Patterns](blog/part3.md)
